@@ -1,26 +1,31 @@
 # xImJxstinn Vertical
 
-Eigenes OBS-Plugin von **xImJxstinn** für den TikTok-Hochformat-Stream (9:16) –
-mit eigener Vertikal-Vorschau, eigenen Szenen, Quellen und Übergängen direkt in OBS.
-Twitch läuft ganz normal über OBS, TikTok über *xImJxstinn Vertical*.
+Eigenes OBS-Plugin von **xImJxstinn** für den TikTok-Hochformat-Stream (9:16).
+Twitch läuft ganz normal über OBS, TikTok gleichzeitig über *xImJxstinn Vertical*.
 
-## Was anders ist als beim Original
-- Eigener Name und eigene Dock-Titel („xImJxstinn Vertical Szenen“, „… Quellen“)
-- **Keine Werbung, kein Spenden-Knopf, keine Update-/Tracking-Abfrage** an externe Server
-- **Viewer Counter** im Dock: Twitch- und TikTok-Zuschauer plus Gesamtzahl live (Daten vom MultiStream Hub)
-- **💬 Chat-Knopf** im Dock → öffnet den MultiStream Hub (Twitch- + TikTok-Chat, Alerts, Overlays)
-- Übernimmt bestehende Aitum-Vertical-Szenen und -Einstellungen automatisch (gleiche interne Kennungen)
+## Funktionen
+- **Hochformat-Leinwand** (1080×1920 oder 720×1280) direkt in OBS
+- **Drei Docks:** Vorschau, Szenen, Quellen
+- **Vorschau bearbeiten:** klicken = auswählen, ziehen = verschieben, Mausrad = Größe, Pfeiltasten = fein verschieben
+- **Schnell-Layouts:** ganzes Bild, füllen, obere/untere Hälfte, Facecam-Drittel oben + Gameplay unten
+- **Eigener TikTok-Stream** mit eigenem Key, Bitrate und Encoder (NVENC automatisch)
+- **Startet automatisch mit „Stream starten“** in OBS
+- **Szenen wechseln automatisch mit:** OBS-Szene „Gaming Facecam“ → Hochformat-Szene „Gaming Facecam TT“
+- **Viewer Counter** (Twitch + TikTok + Gesamt) und **💬 Chat-Knopf** über den MultiStream Hub
+- Übernimmt bestehende Hochformat-Szenen aus einer vorhandenen Aitum-Vertical-Leinwand automatisch
 
 ## Installieren
-1. **Aitum Vertical deinstallieren** (Windows → Apps → „Vertical“ / „vertical-canvas“). Beide gleichzeitig geht nicht.
-2. Unter *Actions* (oder *Releases*) den neuesten Build öffnen und `…-windows-x64-Installer.exe` herunterladen.
-3. Installer ausführen, OBS starten – fertig. Deine Szenen sind noch da.
+1. OBS schließen.
+2. Unter **Actions** (oder **Releases**) den neuesten Build öffnen und den Installer
+   `ximjxstinn-vertical-…-windows-installer.exe` herunterladen und ausführen.
+3. OBS starten → **Docks** → „xImJxstinn Vertical“, „xImJxstinn Szenen“, „xImJxstinn Quellen“ einblenden.
 
-## Selbst bauen
-Jeder Push auf `main` baut das Plugin automatisch über GitHub Actions
-(`.github/workflows/build-windows.yaml`). Mit einem Tag wie `1.0.1` entsteht ein Release mit Installer.
+Der Installer entfernt ein altes Aitum Vertical bzw. xImJxstinn Vertical 1.x automatisch.
 
-## Lizenz & Herkunft
-Dieses Plugin basiert auf **[Aitum Vertical](https://github.com/Aitum/obs-vertical-canvas)** von Aitum
-und steht wie das Original unter der **GNU General Public License v2.0** (siehe `LICENSE`).
-Der Quellcode muss öffentlich bleiben. Die Original-README liegt in `README.aitum-original.md`.
+## Bauen
+Jeder Push auf `main` baut das Plugin über GitHub Actions (`.github/workflows/build-windows.yaml`).
+Wird ein Release veröffentlicht, hängt GitHub den Installer automatisch an.
+
+## Lizenz
+GPL-2.0-or-later © 2026 xImJxstinn. Build-System basiert auf der offiziellen
+[OBS-Plugin-Vorlage](https://github.com/obsproject/obs-plugintemplate).

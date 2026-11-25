@@ -18,14 +18,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 0
 
       - name: Version lesen
         id: setup
         run: |
           $BuildSpec = Get-Content -Path buildspec.json -Raw | ConvertFrom-Json
-          "pluginName=$($BuildSpec.name)" >> $env:GITHUB_OUTPUT
           "pluginVersion=$($BuildSpec.version)" >> $env:GITHUB_OUTPUT
 
       - name: Plugin bauen 🧱
@@ -35,22 +33,26 @@ jobs:
           config: RelWithDebInfo
 
       - name: Installer erstellen 📀
-        uses: ./.github/actions/package-plugin
-        with:
-          target: x64
-          config: RelWithDebInfo
-          package: true
+        run: |
+          iscc "/DMyAppVersion=${{ steps.setup.outputs.pluginVersion }}" "/O$env:GITHUB_WORKSPACE\release" installer\ximjxstinn-vertical.iss
+
+      - name: ZIP erstellen
+        run: |
+          Compress-Archive -Force -Path release\RelWithDebInfo\ximjxstinn-vertical -DestinationPath release\ximjxstinn-vertical-${{ steps.setup.outputs.pluginVersion }}-windows-manuell.zip
 
       - name: Download bereitstellen 📡
         uses: actions/upload-artifact@v4
         with:
           name: ximjxstinn-vertical-${{ steps.setup.outputs.pluginVersion }}-windows
-          path: ${{ github.workspace }}/release/*.*
+          path: |
+            release/*.exe
+            release/*.zip
 
-      - name: GitHub-Release anlegen (nur bei Tag) 🛫
+      - name: An Release anhängen 🛫
         if: github.event_name == 'release' || github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: xImJxstinn Vertical ${{ github.ref_name }}
-          files: ${{ github.workspace }}/release/*.exe
+          files: |
+            release/*.exe
+            release/*.zip

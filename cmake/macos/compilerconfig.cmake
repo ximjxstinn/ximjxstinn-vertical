@@ -1,4 +1,4 @@
-# OBS CMake macOS compiler configuration module
+# CMake macOS compiler configuration module
 
 include_guard(GLOBAL)
 
@@ -13,12 +13,6 @@ include(ccache)
 include(compiler_common)
 
 add_compile_options("$<$<NOT:$<COMPILE_LANGUAGE:Swift>>:-fopenmp-simd>")
-
-# Enable selection between arm64 and x86_64 targets
-if(NOT CMAKE_OSX_ARCHITECTURES)
-  set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "Build architectures for macOS" FORCE)
-endif()
-set_property(CACHE CMAKE_OSX_ARCHITECTURES PROPERTY STRINGS arm64 x86_64)
 
 # Ensure recent enough Xcode and platform SDK
 function(check_sdk_requirements)
