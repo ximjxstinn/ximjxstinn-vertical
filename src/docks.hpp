@@ -19,6 +19,7 @@ public:
 
 private:
 	void Refresh();
+	void ShowOverlayMenu();
 	XVPreview *preview;
 	QPushButton *streamButton;
 	QLabel *status;

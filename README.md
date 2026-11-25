@@ -11,14 +11,19 @@ Twitch läuft ganz normal über OBS, TikTok gleichzeitig über *xImJxstinn Verti
 - **Eigener TikTok-Stream** mit eigenem Key, Bitrate und Encoder (NVENC automatisch)
 - **Startet automatisch mit „Stream starten“** in OBS
 - **Szenen wechseln automatisch mit:** OBS-Szene „Gaming Facecam“ → Hochformat-Szene „Gaming Facecam TT“
-- **Viewer Counter** (Twitch + TikTok + Gesamt) und **💬 Chat-Knopf** über den MultiStream Hub
+- **MultiStream Hub direkt in OBS:**
+  - startet und beendet sich automatisch mit OBS
+  - Dock **„xImJxstinn Multichat“** mit Twitch- + TikTok-Chat (schreiben, Nachrichten hervorheben)
+  - **🖼 Overlays mit einem Klick** in die TikTok- oder Twitch-Szene: Chat, Alerts, Viewer Counter, hervorgehobene Nachricht
+  - **Viewer Counter** (Twitch + TikTok + Gesamt) im Dock
 - Übernimmt bestehende Hochformat-Szenen aus einer vorhandenen Aitum-Vertical-Leinwand automatisch
 
 ## Installieren
 1. OBS schließen.
 2. Unter **Actions** (oder **Releases**) den neuesten Build öffnen und den Installer
    `ximjxstinn-vertical-…-windows-installer.exe` herunterladen und ausführen.
-3. OBS starten → **Docks** → „xImJxstinn Vertical“, „xImJxstinn Szenen“, „xImJxstinn Quellen“ einblenden.
+3. OBS starten → **Docks** → „xImJxstinn Vertical“, „xImJxstinn Szenen“, „xImJxstinn Quellen“, „xImJxstinn Multichat“ einblenden.
+4. Im ⚙ den Ordner des MultiStream Hub eintragen (wird meist automatisch gefunden). Der Hub muss einmal über `start.bat` eingerichtet worden sein.
 
 Der Installer entfernt ein altes Aitum Vertical bzw. xImJxstinn Vertical 1.x automatisch.
 

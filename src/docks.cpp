@@ -3,6 +3,7 @@
  * Copyright (C) 2026 xImJxstinn – GPL-2.0-or-later
  */
 #include "docks.hpp"
+#include "hub.hpp"
 #include "preview.hpp"
 #include "settings-dialog.hpp"
 #include "vertical.hpp"
@@ -71,6 +72,10 @@ XVMainDock::XVMainDock(QWidget *parent) : QWidget(parent)
 		[] { QDesktopServices::openUrl(QUrl(QStringLiteral("http://localhost:8770/"))); });
 	row->addWidget(chatButton);
 
+	auto overlayButton = tool_button("\xF0\x9F\x96\xBC", "Overlays einfügen (Chat, Alerts, Zuschauer, hervorgehobene Nachricht)", this);
+	connect(overlayButton, &QPushButton::clicked, this, [this] { ShowOverlayMenu(); });
+	row->addWidget(overlayButton);
+
 	layout->addLayout(row);
 
 	auto infoRow = new QHBoxLayout();
@@ -81,6 +86,55 @@ XVMainDock::XVMainDock(QWidget *parent) : QWidget(parent)
 
 	Vertical::Get().AddListener(this, [this] { Refresh(); });
 	Refresh();
+}
+
+void XVMainDock::ShowOverlayMenu()
+{
+	struct Entry {
+		const char *label;
+		Hub::Overlay kind;
+	};
+	const Entry entries[] = {{"Chat (Twitch + TikTok)", Hub::Overlay::Chat},
+				 {"Alerts (Follows, Subs, Gifts …)", Hub::Overlay::Alerts},
+				 {"Viewer Counter", Hub::Overlay::Viewers},
+				 {"Hervorgehobene Nachricht", Hub::Overlay::Highlight}};
+
+	QMenu menu(this);
+	QMenu *tiktok = menu.addMenu(QString::fromUtf8("In TikTok-Szene (Hochformat)"));
+	QMenu *main = menu.addMenu(QString::fromUtf8("In aktuelle OBS-Szene (Twitch)"));
+	for (const Entry &e : entries) {
+		const Hub::Overlay kind = e.kind;
+		tiktok->addAction(QString::fromUtf8(e.label), this, [this, kind] {
+			obs_source_t *src = Vertical::Get().CurrentSceneRef();
+			uint32_t cx = 0, cy = 0;
+			Vertical::Get().CanvasSize(cx, cy);
+			if (!Hub::AddOverlay(obs_scene_from_source(src), kind, true, cx, cy))
+				QMessageBox::warning(this, QStringLiteral("Overlay"),
+						     QStringLiteral("Overlay konnte nicht eingefügt werden."));
+			obs_source_release(src);
+			Vertical::Get().Notify();
+		});
+		main->addAction(QString::fromUtf8(e.label), this, [this, kind] {
+			obs_source_t *src = obs_frontend_get_current_scene();
+			obs_video_info ovi;
+			obs_get_video_info(&ovi);
+			if (!Hub::AddOverlay(obs_scene_from_source(src), kind, false, ovi.base_width, ovi.base_height))
+				QMessageBox::warning(this, QStringLiteral("Overlay"),
+						     QStringLiteral("Overlay konnte nicht eingefügt werden."));
+			obs_source_release(src);
+		});
+	}
+	menu.addSeparator();
+	menu.addAction(QString::fromUtf8("MultiStream Hub im Browser öffnen"), this,
+		       [] { QDesktopServices::openUrl(QUrl(QStringLiteral("http://localhost:8770/"))); });
+	if (!Hub::Online()) {
+		menu.addAction(QString::fromUtf8("\xE2\x96\xB6 MultiStream Hub starten"), this, [this] {
+			std::string error;
+			if (!Hub::Start(error))
+				QMessageBox::warning(this, QStringLiteral("MultiStream Hub"), QString::fromStdString(error));
+		});
+	}
+	menu.exec(QCursor::pos());
 }
 
 void XVMainDock::Refresh()

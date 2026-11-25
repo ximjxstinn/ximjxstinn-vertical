@@ -46,6 +46,9 @@ void Vertical::LoadSettings()
 		settings.autoSwitch = obs_data_get_bool(d, "auto_switch");
 	if (obs_data_has_user_value(d, "suffix"))
 		settings.suffix = obs_data_get_string(d, "suffix");
+	settings.hubDir = obs_data_get_string(d, "hub_dir");
+	if (obs_data_has_user_value(d, "hub_autostart"))
+		settings.hubAutostart = obs_data_get_bool(d, "hub_autostart");
 	obs_data_release(d);
 
 	if (settings.width < 160 || settings.height < 160) {
@@ -71,6 +74,8 @@ void Vertical::SaveSettings()
 	obs_data_set_bool(d, "start_with_main", settings.startWithMain);
 	obs_data_set_bool(d, "auto_switch", settings.autoSwitch);
 	obs_data_set_string(d, "suffix", settings.suffix.c_str());
+	obs_data_set_string(d, "hub_dir", settings.hubDir.c_str());
+	obs_data_set_bool(d, "hub_autostart", settings.hubAutostart);
 	char *path = obs_module_config_path("settings.json");
 	obs_data_save_json_safe(d, path, "tmp", "bak");
 	bfree(path);

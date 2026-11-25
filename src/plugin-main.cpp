@@ -14,7 +14,9 @@
 
 #include <string>
 
+#include "chat-dock.hpp"
 #include "docks.hpp"
+#include "hub.hpp"
 #include "vertical.hpp"
 
 OBS_DECLARE_MODULE()
@@ -30,11 +32,24 @@ const char *obs_module_description(void)
 	return "Hochformat-Leinwand für TikTok mit Vorschau, Szenen, Quellen und eigenem Stream – von xImJxstinn";
 }
 
+static XVChatDock *chatDock = nullptr;
+
 static void frontend_event(enum obs_frontend_event event, void *)
 {
 	Vertical &v = Vertical::Get();
 	switch (event) {
-	case OBS_FRONTEND_EVENT_FINISHED_LOADING:
+	case OBS_FRONTEND_EVENT_FINISHED_LOADING: {
+		v.AttachCanvas();
+		Hub::StartWatcher();
+		if (v.settings.hubAutostart) {
+			std::string error;
+			if (!Hub::Start(error))
+				blog(LOG_INFO, "[xImJxstinn Vertical] Hub nicht gestartet: %s", error.c_str());
+		}
+		if (chatDock)
+			chatDock->InitBrowser();
+		break;
+	}
 	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED:
 		v.AttachCanvas();
 		break;
@@ -58,6 +73,9 @@ static void frontend_event(enum obs_frontend_event event, void *)
 		break;
 	case OBS_FRONTEND_EVENT_EXIT:
 		v.Shutdown();
+		if (v.settings.hubAutostart)
+			Hub::QuitIfStartedByUs();
+		Hub::StopWatcher();
 		break;
 	default:
 		break;
@@ -77,7 +95,7 @@ bool obs_module_load(void)
 	Vertical::Get().LoadSettings();
 	obs_frontend_add_event_callback(frontend_event, nullptr);
 	obs_frontend_add_save_callback(frontend_save, nullptr);
-	blog(LOG_INFO, "[xImJxstinn Vertical] geladen (Version 2.0.0)");
+	blog(LOG_INFO, "[xImJxstinn Vertical] geladen (Version 2.1.0)");
 	return true;
 }
 
@@ -87,10 +105,13 @@ void obs_module_post_load(void)
 	obs_frontend_add_dock_by_id("xImJxstinnVertical", "xImJxstinn Vertical", new XVMainDock(mainWindow));
 	obs_frontend_add_dock_by_id("xImJxstinnVerticalScenes", "xImJxstinn Szenen", new XVScenesDock(mainWindow));
 	obs_frontend_add_dock_by_id("xImJxstinnVerticalSources", "xImJxstinn Quellen", new XVSourcesDock(mainWindow));
+	chatDock = new XVChatDock(mainWindow);
+	obs_frontend_add_dock_by_id("xImJxstinnMultichat", "xImJxstinn Multichat", chatDock);
 }
 
 void obs_module_unload(void)
 {
 	obs_frontend_remove_event_callback(frontend_event, nullptr);
 	obs_frontend_remove_save_callback(frontend_save, nullptr);
+	Hub::StopWatcher();
 }

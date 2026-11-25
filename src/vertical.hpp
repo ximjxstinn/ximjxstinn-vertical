@@ -33,6 +33,8 @@ struct XVSettings {
 	bool startWithMain = true;
 	bool autoSwitch = true;
 	std::string suffix = " TT";
+	std::string hubDir;
+	bool hubAutostart = true;
 };
 
 class Vertical {

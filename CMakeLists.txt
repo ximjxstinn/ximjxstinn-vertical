@@ -36,6 +36,11 @@ target_sources(
     src/settings-dialog.hpp
     src/viewer-counter.cpp
     src/viewer-counter.hpp
+    src/hub.cpp
+    src/hub.hpp
+    src/chat-dock.cpp
+    src/chat-dock.hpp
+    src/browser-panel.hpp
 )
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

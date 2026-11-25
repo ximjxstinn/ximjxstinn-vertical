@@ -4,6 +4,10 @@
  */
 #include "settings-dialog.hpp"
 #include "vertical.hpp"
+#include "hub.hpp"
+
+#include <QDir>
+#include <QFileDialog>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -91,8 +95,30 @@ void Run(QWidget *parent)
 
 	layout->addLayout(form);
 
+	auto hubTitle = new QLabel(QString::fromUtf8("<b>MultiStream Hub</b> – Twitch- + TikTok-Chat, Alerts, Overlays und Zuschauerzahlen."));
+	hubTitle->setWordWrap(true);
+	layout->addWidget(hubTitle);
+	auto hubForm = new QFormLayout();
+	auto hubRow = new QHBoxLayout();
+	auto hubDir = new QLineEdit(QString::fromStdString(s.hubDir.empty() ? Hub::FindHubDir() : s.hubDir));
+	hubDir->setPlaceholderText(QString::fromUtf8("Ordner mit app.py und start.bat"));
+	auto browse = new QPushButton(QString::fromUtf8("…"));
+	browse->setMaximumWidth(36);
+	QObject::connect(browse, &QPushButton::clicked, &dlg, [&dlg, hubDir] {
+		const QString dir = QFileDialog::getExistingDirectory(&dlg, QString::fromUtf8("MultiStream-Hub-Ordner wählen"), hubDir->text());
+		if (!dir.isEmpty())
+			hubDir->setText(QDir::toNativeSeparators(dir));
+	});
+	hubRow->addWidget(hubDir, 1);
+	hubRow->addWidget(browse);
+	hubForm->addRow(QStringLiteral("Hub-Ordner"), hubRow);
+	auto hubAuto = new QCheckBox(QString::fromUtf8("Hub automatisch mit OBS starten und beenden"));
+	hubAuto->setChecked(s.hubAutostart);
+	hubForm->addRow(QString(), hubAuto);
+	layout->addLayout(hubForm);
+
 	auto footer = new QLabel(QString::fromUtf8(
-		"<span style='color:#888'>xImJxstinn Vertical 2.0 · "
+		"<span style='color:#888'>xImJxstinn Vertical 2.1 · "
 		"<a href='https://www.twitch.tv/ximjxstinn'>twitch.tv/ximjxstinn</a></span>"));
 	footer->setOpenExternalLinks(true);
 	layout->addWidget(footer);
@@ -115,6 +141,11 @@ void Run(QWidget *parent)
 	s.startWithMain = withMain->isChecked();
 	s.autoSwitch = autoSwitch->isChecked();
 	s.suffix = suffix->text().toStdString();
+	s.hubDir = hubDir->text().trimmed().toStdString();
+	s.hubAutostart = hubAuto->isChecked();
+	if (!s.hubDir.empty() && !Hub::IsValidHubDir(s.hubDir))
+		QMessageBox::warning(parent, QStringLiteral("MultiStream Hub"),
+				     QString::fromUtf8("In diesem Ordner liegt keine app.py vom MultiStream Hub."));
 
 	if (resChanged) {
 		const int oldW = s.width, oldH = s.height;
