@@ -4,6 +4,8 @@
  */
 #include "vertical.hpp"
 
+#include <obs-module.h>
+
 #include <QCoreApplication>
 #include <QMetaObject>
 
