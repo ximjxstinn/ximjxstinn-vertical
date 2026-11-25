@@ -1,0 +1,53 @@
+name: xImJxstinn Vertical – Windows Build
+on:
+  push:
+    branches: [main, master]
+    tags: ['*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    name: Build für Windows 🪟
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Version lesen
+        id: setup
+        run: |
+          $BuildSpec = Get-Content -Path buildspec.json -Raw | ConvertFrom-Json
+          "pluginName=$($BuildSpec.name)" >> $env:GITHUB_OUTPUT
+          "pluginVersion=$($BuildSpec.version)" >> $env:GITHUB_OUTPUT
+
+      - name: Plugin bauen 🧱
+        uses: ./.github/actions/build-plugin
+        with:
+          target: x64
+          config: RelWithDebInfo
+
+      - name: Installer erstellen 📀
+        uses: ./.github/actions/package-plugin
+        with:
+          target: x64
+          config: RelWithDebInfo
+          package: true
+
+      - name: Download bereitstellen 📡
+        uses: actions/upload-artifact@v4
+        with:
+          name: ximjxstinn-vertical-${{ steps.setup.outputs.pluginVersion }}-windows
+          path: ${{ github.workspace }}/release/*.*
+
+      - name: GitHub-Release anlegen (nur bei Tag) 🛫
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: xImJxstinn Vertical ${{ github.ref_name }}
+          files: ${{ github.workspace }}/release/*.exe
