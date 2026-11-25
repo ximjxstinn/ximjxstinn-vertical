@@ -17,6 +17,9 @@
 #include "chat-dock.hpp"
 #include "docks.hpp"
 #include "hub.hpp"
+#include "updater.hpp"
+
+#include <QTimer>
 #include "vertical.hpp"
 
 OBS_DECLARE_MODULE()
@@ -48,6 +51,11 @@ static void frontend_event(enum obs_frontend_event event, void *)
 		}
 		if (chatDock)
 			chatDock->InitBrowser();
+		if (v.settings.autoUpdate) {
+			QTimer::singleShot(8000, [] {
+				Updater::Check(static_cast<QWidget *>(obs_frontend_get_main_window()), false);
+			});
+		}
 		break;
 	}
 	case OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED:
@@ -76,6 +84,7 @@ static void frontend_event(enum obs_frontend_event event, void *)
 		if (v.settings.hubAutostart)
 			Hub::QuitIfStartedByUs();
 		Hub::StopWatcher();
+		Updater::OnExit();
 		break;
 	default:
 		break;
@@ -95,7 +104,7 @@ bool obs_module_load(void)
 	Vertical::Get().LoadSettings();
 	obs_frontend_add_event_callback(frontend_event, nullptr);
 	obs_frontend_add_save_callback(frontend_save, nullptr);
-	blog(LOG_INFO, "[xImJxstinn Vertical] geladen (Version 2.2.0)");
+	blog(LOG_INFO, "[xImJxstinn Vertical] geladen (Version %s)", Updater::CurrentVersion());
 	return true;
 }
 

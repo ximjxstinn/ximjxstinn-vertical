@@ -50,6 +50,8 @@ void Vertical::LoadSettings()
 	settings.hubDir = obs_data_get_string(d, "hub_dir");
 	if (obs_data_has_user_value(d, "hub_autostart"))
 		settings.hubAutostart = obs_data_get_bool(d, "hub_autostart");
+	if (obs_data_has_user_value(d, "auto_update"))
+		settings.autoUpdate = obs_data_get_bool(d, "auto_update");
 	obs_data_release(d);
 
 	if (settings.width < 160 || settings.height < 160) {
@@ -77,6 +79,7 @@ void Vertical::SaveSettings()
 	obs_data_set_string(d, "suffix", settings.suffix.c_str());
 	obs_data_set_string(d, "hub_dir", settings.hubDir.c_str());
 	obs_data_set_bool(d, "hub_autostart", settings.hubAutostart);
+	obs_data_set_bool(d, "auto_update", settings.autoUpdate);
 	char *path = obs_module_config_path("settings.json");
 	obs_data_save_json_safe(d, path, "tmp", "bak");
 	bfree(path);

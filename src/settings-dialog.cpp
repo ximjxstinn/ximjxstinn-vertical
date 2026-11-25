@@ -5,6 +5,7 @@
 #include "settings-dialog.hpp"
 #include "vertical.hpp"
 #include "hub.hpp"
+#include "updater.hpp"
 
 #include <QDir>
 #include <QFileDialog>
@@ -117,8 +118,17 @@ void Run(QWidget *parent)
 	hubForm->addRow(QString(), hubAuto);
 	layout->addLayout(hubForm);
 
+	auto updateRow = new QHBoxLayout();
+	auto autoUpdate = new QCheckBox(QString::fromUtf8("Automatisch nach Updates suchen (beim OBS-Start)"));
+	autoUpdate->setChecked(s.autoUpdate);
+	auto checkNow = new QPushButton(QString::fromUtf8("Jetzt suchen"));
+	QObject::connect(checkNow, &QPushButton::clicked, &dlg, [&dlg] { Updater::Check(&dlg, true); });
+	updateRow->addWidget(autoUpdate, 1);
+	updateRow->addWidget(checkNow);
+	layout->addLayout(updateRow);
+
 	auto footer = new QLabel(QString::fromUtf8(
-		"<span style='color:#888'>xImJxstinn Vertical 2.2 · "
+		"<span style='color:#888'>xImJxstinn Vertical " PLUGIN_VERSION " · "
 		"<a href='https://www.twitch.tv/ximjxstinn'>twitch.tv/ximjxstinn</a></span>"));
 	footer->setOpenExternalLinks(true);
 	layout->addWidget(footer);
@@ -143,6 +153,7 @@ void Run(QWidget *parent)
 	s.suffix = suffix->text().toStdString();
 	s.hubDir = hubDir->text().trimmed().toStdString();
 	s.hubAutostart = hubAuto->isChecked();
+	s.autoUpdate = autoUpdate->isChecked();
 	if (!s.hubDir.empty() && !Hub::IsValidHubDir(s.hubDir))
 		QMessageBox::warning(parent, QStringLiteral("MultiStream Hub"),
 				     QString::fromUtf8("In diesem Ordner liegt keine app.py vom MultiStream Hub."));

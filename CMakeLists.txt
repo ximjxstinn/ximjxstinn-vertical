@@ -41,6 +41,10 @@ target_sources(
     src/chat-dock.cpp
     src/chat-dock.hpp
     src/browser-panel.hpp
+    src/updater.cpp
+    src/updater.hpp
 )
+
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE PLUGIN_VERSION="${_version}")
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

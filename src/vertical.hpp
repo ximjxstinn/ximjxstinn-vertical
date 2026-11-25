@@ -35,6 +35,7 @@ struct XVSettings {
 	std::string suffix = " TT";
 	std::string hubDir;
 	bool hubAutostart = true;
+	bool autoUpdate = true;
 };
 
 class Vertical {
