@@ -60,6 +60,8 @@ public:
 	bool CreateScene(const std::string &name);
 	bool RenameScene(const std::string &oldName, const std::string &newName);
 	void RemoveScene(const std::string &name);
+	void MoveScene(const std::string &name, int delta);
+	void SetSceneOrder(const std::vector<std::string> &order);
 	void OnMainSceneChanged();
 
 	/* Auswahl im Vorschaubild */
@@ -88,6 +90,7 @@ private:
 	std::mutex mutex;
 	obs_canvas_t *canvas = nullptr;
 	std::string wantedScene;
+	std::vector<std::string> sceneOrder;
 
 	obs_output_t *output = nullptr;
 	obs_encoder_t *videoEncoder = nullptr;

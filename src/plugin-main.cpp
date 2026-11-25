@@ -95,7 +95,7 @@ bool obs_module_load(void)
 	Vertical::Get().LoadSettings();
 	obs_frontend_add_event_callback(frontend_event, nullptr);
 	obs_frontend_add_save_callback(frontend_save, nullptr);
-	blog(LOG_INFO, "[xImJxstinn Vertical] geladen (Version 2.1.0)");
+	blog(LOG_INFO, "[xImJxstinn Vertical] geladen (Version 2.2.0)");
 	return true;
 }
 

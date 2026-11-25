@@ -118,7 +118,7 @@ void Run(QWidget *parent)
 	layout->addLayout(hubForm);
 
 	auto footer = new QLabel(QString::fromUtf8(
-		"<span style='color:#888'>xImJxstinn Vertical 2.1 · "
+		"<span style='color:#888'>xImJxstinn Vertical 2.2 · "
 		"<a href='https://www.twitch.tv/ximjxstinn'>twitch.tv/ximjxstinn</a></span>"));
 	footer->setOpenExternalLinks(true);
 	layout->addWidget(footer);

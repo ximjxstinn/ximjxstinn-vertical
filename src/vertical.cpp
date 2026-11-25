@@ -11,6 +11,7 @@
 
 #include <util/platform.h>
 
+#include <algorithm>
 #include <cstring>
 
 Vertical &Vertical::Get()
@@ -231,6 +232,7 @@ std::vector<std::string> Vertical::SceneNames()
 	obs_canvas_t *c = CanvasRef();
 	if (!c)
 		return names;
+	std::vector<std::string> raw;
 	obs_canvas_enum_scenes(
 		c,
 		[](void *param, obs_source_t *src) {
@@ -240,9 +242,42 @@ std::vector<std::string> Vertical::SceneNames()
 				list->emplace_back(n);
 			return true;
 		},
-		&names);
+		&raw);
 	obs_canvas_release(c);
+
+	/* Gespeicherte Reihenfolge zuerst, neue Szenen hinten anhängen */
+	for (const auto &n : sceneOrder) {
+		if (std::find(raw.begin(), raw.end(), n) != raw.end() &&
+		    std::find(names.begin(), names.end(), n) == names.end())
+			names.push_back(n);
+	}
+	for (const auto &n : raw) {
+		if (std::find(names.begin(), names.end(), n) == names.end())
+			names.push_back(n);
+	}
+	sceneOrder = names;
 	return names;
+}
+
+void Vertical::MoveScene(const std::string &name, int delta)
+{
+	std::vector<std::string> names = SceneNames();
+	auto it = std::find(names.begin(), names.end(), name);
+	if (it == names.end())
+		return;
+	const long idx = (long)(it - names.begin());
+	const long target = idx + delta;
+	if (target < 0 || target >= (long)names.size())
+		return;
+	std::swap(names[(size_t)idx], names[(size_t)target]);
+	SetSceneOrder(names);
+}
+
+void Vertical::SetSceneOrder(const std::vector<std::string> &order)
+{
+	sceneOrder = order;
+	obs_frontend_save();
+	Notify();
 }
 
 obs_source_t *Vertical::CurrentSceneRef()
@@ -326,6 +361,10 @@ bool Vertical::RenameScene(const std::string &oldName, const std::string &newNam
 			obs_source_release(src);
 			if (wantedScene == oldName)
 				wantedScene = newName;
+			for (auto &n : sceneOrder) {
+				if (n == oldName)
+					n = newName;
+			}
 			ok = true;
 		}
 	}
@@ -545,6 +584,15 @@ void Vertical::SaveCollection(obs_data_t *data)
 	obs_data_t *obj = obs_data_create();
 	const std::string current = CurrentSceneName();
 	obs_data_set_string(obj, "current_scene", current.empty() ? wantedScene.c_str() : current.c_str());
+	obs_data_array_t *order = obs_data_array_create();
+	for (const auto &n : sceneOrder) {
+		obs_data_t *entry = obs_data_create();
+		obs_data_set_string(entry, "name", n.c_str());
+		obs_data_array_push_back(order, entry);
+		obs_data_release(entry);
+	}
+	obs_data_set_array(obj, "scene_order", order);
+	obs_data_array_release(order);
 	obs_data_set_obj(data, "ximjxstinn_vertical", obj);
 	obs_data_release(obj);
 }
@@ -553,8 +601,19 @@ void Vertical::LoadCollection(obs_data_t *data)
 {
 	obs_data_t *obj = obs_data_get_obj(data, "ximjxstinn_vertical");
 	wantedScene.clear();
+	sceneOrder.clear();
 	if (obj) {
 		wantedScene = obs_data_get_string(obj, "current_scene");
+		obs_data_array_t *order = obs_data_get_array(obj, "scene_order");
+		const size_t count = obs_data_array_count(order);
+		for (size_t i = 0; i < count; i++) {
+			obs_data_t *entry = obs_data_array_item(order, i);
+			const char *n = obs_data_get_string(entry, "name");
+			if (n && *n)
+				sceneOrder.emplace_back(n);
+			obs_data_release(entry);
+		}
+		obs_data_array_release(order);
 		obs_data_release(obj);
 	}
 }

@@ -16,6 +16,8 @@
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QMenu>
+#include <QToolButton>
+#include <QAbstractItemModel>
 #include <QMessageBox>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -165,12 +167,23 @@ XVScenesDock::XVScenesDock(QWidget *parent) : QWidget(parent)
 
 	list = new QListWidget(this);
 	list->setSelectionMode(QAbstractItemView::SingleSelection);
+	list->setDragDropMode(QAbstractItemView::InternalMove);
+	list->setDefaultDropAction(Qt::MoveAction);
 	layout->addWidget(list, 1);
 
 	connect(list, &QListWidget::currentItemChanged, this, [this](QListWidgetItem *cur, QListWidgetItem *) {
 		if (updating || !cur)
 			return;
 		Vertical::Get().SetCurrentScene(cur->text().toStdString());
+	});
+	/* Nach dem Ziehen die neue Reihenfolge fest speichern */
+	connect(list->model(), &QAbstractItemModel::rowsMoved, this, [this] {
+		if (updating)
+			return;
+		std::vector<std::string> order;
+		for (int i = 0; i < list->count(); i++)
+			order.push_back(list->item(i)->text().toStdString());
+		Vertical::Get().SetSceneOrder(order);
 	});
 	connect(list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *) { RenameScene(); });
 
@@ -179,17 +192,30 @@ XVScenesDock::XVScenesDock(QWidget *parent) : QWidget(parent)
 	auto add = tool_button("+", "Neue Hochformat-Szene", this);
 	auto remove = tool_button("\xE2\x88\x92", "Szene löschen", this);
 	auto rename = tool_button("\xE2\x9C\x8E", "Szene umbenennen", this);
+	auto sceneUp = tool_button("\xE2\x96\xB2", "Szene nach oben", this);
+	auto sceneDown = tool_button("\xE2\x96\xBC", "Szene nach unten", this);
+	auto moveScene = [this](int delta) {
+		QListWidgetItem *cur = list->currentItem();
+		if (cur)
+			Vertical::Get().MoveScene(cur->text().toStdString(), delta);
+	};
+	connect(sceneUp, &QPushButton::clicked, this, [moveScene] { moveScene(-1); });
+	connect(sceneDown, &QPushButton::clicked, this, [moveScene] { moveScene(1); });
 	connect(add, &QPushButton::clicked, this, [this] { AddScene(); });
 	connect(remove, &QPushButton::clicked, this, [this] { RemoveScene(); });
 	connect(rename, &QPushButton::clicked, this, [this] { RenameScene(); });
 	row->addWidget(add);
 	row->addWidget(remove);
 	row->addWidget(rename);
+	row->addWidget(sceneUp);
+	row->addWidget(sceneDown);
 	row->addStretch(1);
 	layout->addLayout(row);
 
 	auto hint = new QLabel(
-		QString::fromUtf8("Tipp: Heißt eine Szene wie deine OBS-Szene + „ TT“, wechselt sie automatisch mit."), this);
+		QString::fromUtf8("Reihenfolge: ▲▼ oder per Maus ziehen – bleibt nach dem OBS-Neustart gleich. "
+				  "Heißt eine Szene wie deine OBS-Szene + „ TT“, wechselt sie automatisch mit."),
+		this);
 	hint->setWordWrap(true);
 	hint->setStyleSheet(QStringLiteral("color:#888;font-size:11px;"));
 	layout->addWidget(hint);
@@ -289,19 +315,6 @@ XVSourcesDock::XVSourcesDock(QWidget *parent) : QWidget(parent)
 		Vertical &v = Vertical::Get();
 		v.selectedItem = cur->data(Qt::UserRole).toLongLong();
 	});
-	connect(list, &QListWidget::itemChanged, this, [this](QListWidgetItem *changed) {
-		if (updating || !changed)
-			return;
-		obs_source_t *src = Vertical::Get().CurrentSceneRef();
-		obs_scene_t *scene = obs_scene_from_source(src);
-		if (scene) {
-			obs_sceneitem_t *item =
-				obs_scene_find_sceneitem_by_id(scene, changed->data(Qt::UserRole).toLongLong());
-			if (item)
-				obs_sceneitem_set_visible(item, changed->checkState() == Qt::Checked);
-		}
-		obs_source_release(src);
-	});
 	connect(list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *) {
 		obs_source_t *src = Vertical::Get().CurrentSceneRef();
 		obs_sceneitem_t *item = SelectedItem(obs_scene_from_source(src));
@@ -358,7 +371,7 @@ XVSourcesDock::XVSourcesDock(QWidget *parent) : QWidget(parent)
 	layout->addLayout(row);
 
 	auto hint = new QLabel(QString::fromUtf8("In der Vorschau: klicken = auswählen, ziehen = verschieben, "
-						 "Mausrad = Größe, Pfeiltasten = fein verschieben."),
+						 "Mausrad = Größe, Pfeiltasten = fein verschieben. 👁 = ein/aus, 🔒 = sperren."),
 			       this);
 	hint->setWordWrap(true);
 	hint->setStyleSheet(QStringLiteral("color:#888;font-size:11px;"));
@@ -452,14 +465,51 @@ void XVSourcesDock::Refresh()
 
 	const int64_t selected = Vertical::Get().selectedItem;
 	for (auto it = rows.rbegin(); it != rows.rend(); ++it) {
-		QString text = QString::fromStdString(it->name);
-		if (it->locked)
-			text += QString::fromUtf8("  \xF0\x9F\x94\x92");
-		auto item = new QListWidgetItem(text, list);
-		item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-		item->setCheckState(it->visible ? Qt::Checked : Qt::Unchecked);
-		item->setData(Qt::UserRole, QVariant::fromValue<qlonglong>(it->id));
-		if (it->id == selected)
+		const int64_t id = it->id;
+		auto item = new QListWidgetItem(list);
+		item->setData(Qt::UserRole, QVariant::fromValue<qlonglong>(id));
+
+		auto rowWidget = new QWidget(list);
+		auto rowLayout = new QHBoxLayout(rowWidget);
+		rowLayout->setContentsMargins(4, 1, 4, 1);
+		rowLayout->setSpacing(4);
+
+		auto eye = new QToolButton(rowWidget);
+		eye->setAutoRaise(true);
+		eye->setText(it->visible ? QString::fromUtf8("\xF0\x9F\x91\x81") : QString::fromUtf8("\xE2\x80\x94"));
+		eye->setToolTip(it->visible ? QString::fromUtf8("Sichtbar – klicken zum Ausblenden")
+					    : QString::fromUtf8("Ausgeblendet – klicken zum Einblenden"));
+		connect(eye, &QToolButton::clicked, this, [id] {
+			obs_source_t *src = Vertical::Get().CurrentSceneRef();
+			if (obs_sceneitem_t *si = obs_scene_find_sceneitem_by_id(obs_scene_from_source(src), id))
+				obs_sceneitem_set_visible(si, !obs_sceneitem_visible(si));
+			obs_source_release(src);
+			Vertical::Get().Notify();
+		});
+
+		auto label = new QLabel(QString::fromStdString(it->name), rowWidget);
+		if (!it->visible)
+			label->setStyleSheet(QStringLiteral("color:#777;"));
+
+		auto lock = new QToolButton(rowWidget);
+		lock->setAutoRaise(true);
+		lock->setText(it->locked ? QString::fromUtf8("\xF0\x9F\x94\x92") : QString::fromUtf8("\xF0\x9F\x94\x93"));
+		lock->setToolTip(it->locked ? QString::fromUtf8("Gesperrt – kann in der Vorschau nicht verschoben werden")
+					    : QString::fromUtf8("Entsperrt – klicken zum Sperren"));
+		connect(lock, &QToolButton::clicked, this, [id] {
+			obs_source_t *src = Vertical::Get().CurrentSceneRef();
+			if (obs_sceneitem_t *si = obs_scene_find_sceneitem_by_id(obs_scene_from_source(src), id))
+				obs_sceneitem_set_locked(si, !obs_sceneitem_locked(si));
+			obs_source_release(src);
+			Vertical::Get().Notify();
+		});
+
+		rowLayout->addWidget(eye);
+		rowLayout->addWidget(label, 1);
+		rowLayout->addWidget(lock);
+		item->setSizeHint(rowWidget->sizeHint());
+		list->setItemWidget(item, rowWidget);
+		if (id == selected)
 			list->setCurrentItem(item);
 	}
 	updating = false;
