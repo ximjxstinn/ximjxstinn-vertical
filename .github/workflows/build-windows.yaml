@@ -3,6 +3,8 @@ on:
   push:
     branches: [main, master]
     tags: ['*']
+  release:
+    types: [published]
   workflow_dispatch:
 permissions:
   contents: write
@@ -46,8 +48,9 @@ jobs:
           path: ${{ github.workspace }}/release/*.*
 
       - name: GitHub-Release anlegen (nur bei Tag) 🛫
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'release' || github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           name: xImJxstinn Vertical ${{ github.ref_name }}
           files: ${{ github.workspace }}/release/*.exe
