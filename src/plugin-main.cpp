@@ -68,6 +68,11 @@ static void frontend_event(enum obs_frontend_event event, void *)
 	case OBS_FRONTEND_EVENT_SCENE_CHANGED:
 		v.OnMainSceneChanged();
 		break;
+	case OBS_FRONTEND_EVENT_TRANSITION_CHANGED:
+	case OBS_FRONTEND_EVENT_TRANSITION_LIST_CHANGED:
+		if (v.settings.transitionMode == "obs")
+			v.TransitionSettingsChanged();
+		break;
 	case OBS_FRONTEND_EVENT_STREAMING_STARTING:
 		if (v.settings.startWithMain && !v.settings.key.empty()) {
 			std::string error;

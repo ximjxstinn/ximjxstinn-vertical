@@ -38,10 +38,7 @@ static FitRect fit_canvas(float viewW, float viewH, float canvasW, float canvasH
 
 static obs_sceneitem_t *find_selected(obs_scene_t *scene)
 {
-	const int64_t id = Vertical::Get().selectedItem;
-	if (!scene || !id)
-		return nullptr;
-	return obs_scene_find_sceneitem_by_id(scene, id);
+	return XVFindItem(scene, Vertical::Get().selectedItem);
 }
 
 static void vec3_xy(vec3 &out, float x, float y, const matrix4 &m)
@@ -201,11 +198,28 @@ void XVPreview::mousePressEvent(QMouseEvent *event)
 	if (scene)
 		obs_scene_enum_items(scene, hit_item, &hit);
 
+	/* Ist schon eine Quelle in einer Gruppe ausgewählt und liegt der Klick darauf, bleibt sie ausgewählt */
+	if (obs_sceneitem_t *sel = find_selected(scene)) {
+		if (obs_sceneitem_get_group(scene, sel) && !obs_sceneitem_locked(sel)) {
+			matrix4 box, inv;
+			XVItemBox(scene, sel, box);
+			vec3 local;
+			if (matrix4_inv(&inv, &box)) {
+				vec3_xy(local, pos.x, pos.y, inv);
+				if (local.x >= 0.0f && local.x <= 1.0f && local.y >= 0.0f && local.y <= 1.0f)
+					hit.id = obs_sceneitem_get_id(sel);
+			}
+		}
+	}
+
 	v.selectedItem = hit.id;
 	dragging = false;
 	if (obs_sceneitem_t *item = find_selected(scene)) {
 		obs_sceneitem_get_pos(item, &itemStart);
-		dragStart = pos;
+		XVItemParentInverse(scene, item, parentInv);
+		vec3 local;
+		vec3_xy(local, pos.x, pos.y, parentInv);
+		vec2_set(&dragStart, local.x, local.y);
 		dragging = true;
 	}
 	obs_source_release(src);
@@ -221,9 +235,11 @@ void XVPreview::mouseMoveEvent(QMouseEvent *event)
 		return;
 	obs_source_t *src = Vertical::Get().CurrentSceneRef();
 	if (obs_sceneitem_t *item = find_selected(obs_scene_from_source(src))) {
+		vec3 local;
+		vec3_xy(local, pos.x, pos.y, parentInv);
 		vec2 np;
-		np.x = std::round(itemStart.x + (pos.x - dragStart.x));
-		np.y = std::round(itemStart.y + (pos.y - dragStart.y));
+		np.x = std::round(itemStart.x + (local.x - dragStart.x));
+		np.y = std::round(itemStart.y + (local.y - dragStart.y));
 		obs_sceneitem_set_pos(item, &np);
 	}
 	obs_source_release(src);
@@ -237,14 +253,15 @@ void XVPreview::mouseReleaseEvent(QMouseEvent *)
 void XVPreview::wheelEvent(QWheelEvent *event)
 {
 	obs_source_t *src = Vertical::Get().CurrentSceneRef();
-	obs_sceneitem_t *item = find_selected(obs_scene_from_source(src));
+	obs_scene_t *wheelScene = obs_scene_from_source(src);
+	obs_sceneitem_t *item = find_selected(wheelScene);
 	if (item) {
 		const float steps = (float)event->angleDelta().y() / 120.0f;
 		const float factor = std::pow(1.08f, steps);
 
-		matrix4 m;
+		matrix4 m, inv;
 		vec3 before, after;
-		obs_sceneitem_get_box_transform(item, &m);
+		XVItemBox(wheelScene, item, m);
 		vec3_xy(before, 0.5f, 0.5f, m);
 
 		if (obs_sceneitem_get_bounds_type(item) != OBS_BOUNDS_NONE) {
@@ -261,13 +278,19 @@ void XVPreview::wheelEvent(QWheelEvent *event)
 			obs_sceneitem_set_scale(item, &s);
 		}
 		obs_sceneitem_force_update_transform(item);
-		obs_sceneitem_get_box_transform(item, &m);
+		XVItemBox(wheelScene, item, m);
 		vec3_xy(after, 0.5f, 0.5f, m);
+
+		/* Verschiebung in Gruppen-Koordinaten umrechnen */
+		XVItemParentInverse(wheelScene, item, inv);
+		vec3 lb, la;
+		vec3_xy(lb, before.x, before.y, inv);
+		vec3_xy(la, after.x, after.y, inv);
 
 		vec2 p;
 		obs_sceneitem_get_pos(item, &p);
-		p.x += before.x - after.x;
-		p.y += before.y - after.y;
+		p.x += lb.x - la.x;
+		p.y += lb.y - la.y;
 		obs_sceneitem_set_pos(item, &p);
 		event->accept();
 	}
@@ -332,11 +355,12 @@ void XVPreview::Draw(void *, uint32_t cx, uint32_t cy)
 	obs_render_canvas_texture(canvas);
 
 	/* Rahmen um die ausgewählte Quelle */
-	obs_source_t *src = obs_canvas_get_channel(canvas, 0);
-	obs_sceneitem_t *item = find_selected(obs_scene_from_source(src));
+	obs_source_t *src = v.CurrentSceneRef();
+	obs_scene_t *drawScene = obs_scene_from_source(src);
+	obs_sceneitem_t *item = find_selected(drawScene);
 	if (item && obs_sceneitem_visible(item)) {
 		matrix4 m;
-		obs_sceneitem_get_box_transform(item, &m);
+		XVItemBox(drawScene, item, m);
 		vec3 c[4];
 		vec3_xy(c[0], 0.0f, 0.0f, m);
 		vec3_xy(c[1], 1.0f, 0.0f, m);

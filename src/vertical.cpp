@@ -14,6 +14,77 @@
 #include <algorithm>
 #include <cstring>
 
+/* ------------------------------------------------------------------ */
+/* Gruppen-Hilfen                                                      */
+/* ------------------------------------------------------------------ */
+
+struct FindData {
+	int64_t id;
+	obs_sceneitem_t *found;
+};
+
+static bool find_in_group(obs_scene_t *, obs_sceneitem_t *item, void *param)
+{
+	auto d = static_cast<FindData *>(param);
+	if (obs_sceneitem_get_id(item) == d->id) {
+		d->found = item;
+		return false;
+	}
+	return true;
+}
+
+obs_sceneitem_t *XVFindItem(obs_scene_t *scene, int64_t id)
+{
+	if (!scene || !id)
+		return nullptr;
+	if (obs_sceneitem_t *item = obs_scene_find_sceneitem_by_id(scene, id))
+		return item;
+	struct Ctx {
+		int64_t id;
+		obs_sceneitem_t *found;
+	} ctx = {id, nullptr};
+	obs_scene_enum_items(
+		scene,
+		[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+			auto c = static_cast<Ctx *>(param);
+			if (!obs_sceneitem_is_group(item))
+				return true;
+			FindData d = {c->id, nullptr};
+			obs_sceneitem_group_enum_items(item, find_in_group, &d);
+			if (d.found) {
+				c->found = d.found;
+				return false;
+			}
+			return true;
+		},
+		&ctx);
+	return ctx.found;
+}
+
+void XVItemBox(obs_scene_t *scene, obs_sceneitem_t *item, matrix4 &out)
+{
+	obs_sceneitem_get_box_transform(item, &out);
+	obs_sceneitem_t *group = scene ? obs_sceneitem_get_group(scene, item) : nullptr;
+	if (group) {
+		matrix4 parent, combined;
+		obs_sceneitem_get_draw_transform(group, &parent);
+		matrix4_mul(&combined, &out, &parent);
+		out = combined;
+	}
+}
+
+void XVItemParentInverse(obs_scene_t *scene, obs_sceneitem_t *item, matrix4 &out)
+{
+	matrix4_identity(&out);
+	obs_sceneitem_t *group = scene ? obs_sceneitem_get_group(scene, item) : nullptr;
+	if (group) {
+		matrix4 parent;
+		obs_sceneitem_get_draw_transform(group, &parent);
+		if (!matrix4_inv(&out, &parent))
+			matrix4_identity(&out);
+	}
+}
+
 Vertical &Vertical::Get()
 {
 	static Vertical instance;
@@ -52,6 +123,10 @@ void Vertical::LoadSettings()
 		settings.hubAutostart = obs_data_get_bool(d, "hub_autostart");
 	if (obs_data_has_user_value(d, "auto_update"))
 		settings.autoUpdate = obs_data_get_bool(d, "auto_update");
+	if (obs_data_has_user_value(d, "transition_mode"))
+		settings.transitionMode = obs_data_get_string(d, "transition_mode");
+	if (obs_data_has_user_value(d, "transition_duration"))
+		settings.transitionDuration = (int)obs_data_get_int(d, "transition_duration");
 	obs_data_release(d);
 
 	if (settings.width < 160 || settings.height < 160) {
@@ -80,6 +155,8 @@ void Vertical::SaveSettings()
 	obs_data_set_string(d, "hub_dir", settings.hubDir.c_str());
 	obs_data_set_bool(d, "hub_autostart", settings.hubAutostart);
 	obs_data_set_bool(d, "auto_update", settings.autoUpdate);
+	obs_data_set_string(d, "transition_mode", settings.transitionMode.c_str());
+	obs_data_set_int(d, "transition_duration", settings.transitionDuration);
 	char *path = obs_module_config_path("settings.json");
 	obs_data_save_json_safe(d, path, "tmp", "bak");
 	bfree(path);
@@ -201,6 +278,7 @@ void Vertical::DetachCanvas()
 		canvas = nullptr;
 	}
 	selectedItem = 0;
+	ReleaseTransition();
 	if (old)
 		obs_canvas_release(old);
 }
@@ -290,6 +368,11 @@ obs_source_t *Vertical::CurrentSceneRef()
 		return nullptr;
 	obs_source_t *s = obs_canvas_get_channel(c, 0);
 	obs_canvas_release(c);
+	if (s && obs_source_get_type(s) == OBS_SOURCE_TYPE_TRANSITION) {
+		obs_source_t *active = obs_transition_get_active_source(s);
+		obs_source_release(s);
+		s = active;
+	}
 	return s;
 }
 
@@ -313,10 +396,25 @@ void Vertical::SetCurrentScene(const std::string &name)
 		return;
 	obs_scene_t *scene = obs_canvas_get_scene_by_name(c, name.c_str());
 	if (scene) {
-		obs_canvas_set_channel(c, 0, obs_scene_get_source(scene));
+		obs_source_t *target = obs_scene_get_source(scene);
+		EnsureTransition(c);
+		obs_source_t *cur = CurrentSceneRef();
+		const bool same = cur == target;
+		const bool first = cur == nullptr;
+		obs_source_release(cur);
+		if (transition) {
+			const int ms = TransitionDurationMs();
+			if (!same) {
+				if (first || ms <= 0 || !obs_transition_start(transition, OBS_TRANSITION_MODE_AUTO, (uint32_t)ms, target))
+					obs_transition_set(transition, target);
+			}
+		} else {
+			obs_canvas_set_channel(c, 0, target);
+		}
 		obs_scene_release(scene);
+		if (!same)
+			selectedItem = 0;
 		wantedScene = name;
-		selectedItem = 0;
 	}
 	obs_canvas_release(c);
 	Notify();
@@ -385,8 +483,12 @@ void Vertical::RemoveScene(const std::string &name)
 	const bool wasCurrent = CurrentSceneName() == name;
 	obs_source_t *src = obs_canvas_get_source_by_name(c, name.c_str());
 	if (src) {
-		if (wasCurrent)
-			obs_canvas_set_channel(c, 0, nullptr);
+		if (wasCurrent) {
+			if (transition)
+				obs_transition_set(transition, nullptr);
+			else
+				obs_canvas_set_channel(c, 0, nullptr);
+		}
 		obs_source_remove(src);
 		obs_source_release(src);
 	}
@@ -423,6 +525,90 @@ void Vertical::OnMainSceneChanged()
 			}
 		}
 	}
+}
+
+/* ------------------------------------------------------------------ */
+/* Szenenübergänge                                                     */
+/* ------------------------------------------------------------------ */
+
+int Vertical::TransitionDurationMs()
+{
+	if (settings.transitionMode == "cut")
+		return 0;
+	if (settings.transitionMode == "obs")
+		return obs_frontend_get_transition_duration();
+	return settings.transitionDuration;
+}
+
+void Vertical::ReleaseTransition()
+{
+	if (!transition)
+		return;
+	obs_transition_clear(transition);
+	obs_source_release(transition);
+	transition = nullptr;
+	transitionKey.clear();
+}
+
+void Vertical::EnsureTransition(obs_canvas_t *c)
+{
+	std::string key = settings.transitionMode;
+	obs_source_t *mainTransition = nullptr;
+	if (key == "obs") {
+		mainTransition = obs_frontend_get_current_transition();
+		const char *n = mainTransition ? obs_source_get_name(mainTransition) : nullptr;
+		key += ":";
+		key += n ? n : "";
+	}
+
+	if (transition && key == transitionKey) {
+		obs_source_t *ch = obs_canvas_get_channel(c, 0);
+		if (ch != transition)
+			obs_canvas_set_channel(c, 0, transition);
+		obs_source_release(ch);
+		obs_source_release(mainTransition);
+		return;
+	}
+
+	/* Aktuelle Szene merken, neuen Übergang bauen */
+	obs_source_t *active = CurrentSceneRef();
+	obs_source_t *created = nullptr;
+	const char *name = "xImJxstinn Vertical Übergang";
+	if (mainTransition)
+		created = obs_source_duplicate(mainTransition, name, true);
+	if (!created) {
+		const char *id = "fade_transition";
+		if (settings.transitionMode == "cut")
+			id = "cut_transition";
+		else if (settings.transitionMode == "slide")
+			id = "slide_transition";
+		else if (settings.transitionMode == "swipe")
+			id = "swipe_transition";
+		created = obs_source_create_private(id, name, nullptr);
+	}
+	obs_source_release(mainTransition);
+
+	if (!created) {
+		obs_source_release(active);
+		return;
+	}
+	if (active && obs_source_get_type(active) != OBS_SOURCE_TYPE_TRANSITION)
+		obs_transition_set(created, active);
+	obs_canvas_set_channel(c, 0, created);
+	obs_source_release(active);
+
+	ReleaseTransition();
+	transition = created;
+	transitionKey = key;
+}
+
+void Vertical::TransitionSettingsChanged()
+{
+	obs_canvas_t *c = CanvasRef();
+	if (!c)
+		return;
+	EnsureTransition(c);
+	obs_canvas_release(c);
 }
 
 /* ------------------------------------------------------------------ */
@@ -569,6 +755,7 @@ void Vertical::Shutdown()
 {
 	ReleaseOutput();
 	DetachCanvas();
+	ReleaseTransition();
 }
 
 void Vertical::StopStream()

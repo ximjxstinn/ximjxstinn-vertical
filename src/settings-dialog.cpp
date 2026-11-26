@@ -88,6 +88,32 @@ void Run(QWidget *parent)
 	autoSwitch->setChecked(s.autoSwitch);
 	form->addRow(QString(), autoSwitch);
 
+	auto transitionRow = new QHBoxLayout();
+	auto transitionMode = new QComboBox();
+	transitionMode->addItem(QString::fromUtf8("Wie in OBS (gleicher Übergang + Dauer)"), QStringLiteral("obs"));
+	transitionMode->addItem(QString::fromUtf8("Überblenden"), QStringLiteral("fade"));
+	transitionMode->addItem(QString::fromUtf8("Schieben"), QStringLiteral("slide"));
+	transitionMode->addItem(QString::fromUtf8("Wischen"), QStringLiteral("swipe"));
+	transitionMode->addItem(QString::fromUtf8("Schnitt (kein Übergang)"), QStringLiteral("cut"));
+	for (int i = 0; i < transitionMode->count(); i++) {
+		if (transitionMode->itemData(i).toString().toStdString() == s.transitionMode)
+			transitionMode->setCurrentIndex(i);
+	}
+	auto transitionMs = new QSpinBox();
+	transitionMs->setRange(50, 5000);
+	transitionMs->setSingleStep(50);
+	transitionMs->setSuffix(QStringLiteral(" ms"));
+	transitionMs->setValue(s.transitionDuration);
+	auto updateMsEnabled = [transitionMode, transitionMs] {
+		const QString m = transitionMode->currentData().toString();
+		transitionMs->setEnabled(m != QStringLiteral("obs") && m != QStringLiteral("cut"));
+	};
+	QObject::connect(transitionMode, &QComboBox::currentIndexChanged, transitionMs, updateMsEnabled);
+	updateMsEnabled();
+	transitionRow->addWidget(transitionMode, 1);
+	transitionRow->addWidget(transitionMs);
+	form->addRow(QString::fromUtf8("Szenenübergang"), transitionRow);
+
 	auto suffix = new QLineEdit(QString::fromStdString(s.suffix));
 	suffix->setToolTip(QString::fromUtf8(
 		"Beispiel: OBS-Szene „Gaming Facecam“ → Hochformat-Szene „Gaming Facecam TT“. "
@@ -154,6 +180,8 @@ void Run(QWidget *parent)
 	s.hubDir = hubDir->text().trimmed().toStdString();
 	s.hubAutostart = hubAuto->isChecked();
 	s.autoUpdate = autoUpdate->isChecked();
+	s.transitionMode = transitionMode->currentData().toString().toStdString();
+	s.transitionDuration = transitionMs->value();
 	if (!s.hubDir.empty() && !Hub::IsValidHubDir(s.hubDir))
 		QMessageBox::warning(parent, QStringLiteral("MultiStream Hub"),
 				     QString::fromUtf8("In diesem Ordner liegt keine app.py vom MultiStream Hub."));
@@ -170,6 +198,7 @@ void Run(QWidget *parent)
 		}
 	}
 	v.SaveSettings();
+	v.TransitionSettingsChanged();
 	v.Notify();
 }
 

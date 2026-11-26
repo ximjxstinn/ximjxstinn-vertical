@@ -11,6 +11,9 @@
 #include <QPushButton>
 #include <QWidget>
 
+#include <set>
+#include <vector>
+
 class XVPreview;
 
 class XVMainDock : public QWidget {
@@ -57,4 +60,6 @@ private:
 	QListWidget *list;
 	bool updating = false;
 	obs_weak_source_t *connectedScene = nullptr;
+	std::set<int64_t> collapsed;
+	std::vector<int64_t> groupIds;
 };

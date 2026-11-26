@@ -6,6 +6,7 @@
 
 #include <obs.h>
 #include <graphics/vec2.h>
+#include <graphics/matrix4.h>
 
 #include <QWidget>
 
@@ -37,4 +38,5 @@ private:
 	bool dragging = false;
 	vec2 dragStart = {};
 	vec2 itemStart = {};
+	matrix4 parentInv = {};
 };

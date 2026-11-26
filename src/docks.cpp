@@ -388,10 +388,7 @@ XVSourcesDock::~XVSourcesDock()
 
 obs_sceneitem_t *XVSourcesDock::SelectedItem(obs_scene_t *scene)
 {
-	const int64_t id = Vertical::Get().selectedItem;
-	if (!scene || !id)
-		return nullptr;
-	return obs_scene_find_sceneitem_by_id(scene, id);
+	return XVFindItem(scene, Vertical::Get().selectedItem);
 }
 
 void XVSourcesDock::SceneSignal(void *, calldata_t *)
@@ -438,7 +435,18 @@ struct ItemRow {
 	std::string name;
 	bool visible;
 	bool locked;
+	bool isGroup;
+	int depth;
 };
+
+static bool collect_items(obs_scene_t *, obs_sceneitem_t *item, void *param)
+{
+	auto out = static_cast<std::vector<ItemRow> *>(param);
+	const char *n = obs_source_get_name(obs_sceneitem_get_source(item));
+	out->push_back({obs_sceneitem_get_id(item), n ? n : "", obs_sceneitem_visible(item), obs_sceneitem_locked(item),
+			obs_sceneitem_is_group(item), 0});
+	return true;
+}
 
 void XVSourcesDock::Refresh()
 {
@@ -448,65 +456,94 @@ void XVSourcesDock::Refresh()
 
 	obs_source_t *src = Vertical::Get().CurrentSceneRef();
 	obs_scene_t *scene = obs_scene_from_source(src);
+	std::vector<ItemRow> top;
+	if (scene)
+		obs_scene_enum_items(scene, collect_items, &top);
+
+	/* Oben in der Liste = vorne im Bild; Gruppeninhalte eingerückt darunter */
 	std::vector<ItemRow> rows;
-	if (scene) {
-		obs_scene_enum_items(
-			scene,
-			[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
-				auto out = static_cast<std::vector<ItemRow> *>(param);
-				const char *n = obs_source_get_name(obs_sceneitem_get_source(item));
-				out->push_back({obs_sceneitem_get_id(item), n ? n : "", obs_sceneitem_visible(item),
-						obs_sceneitem_locked(item)});
-				return true;
-			},
-			&rows);
+	for (auto it = top.rbegin(); it != top.rend(); ++it) {
+		rows.push_back(*it);
+		if (!it->isGroup || collapsed.count(it->id))
+			continue;
+		obs_sceneitem_t *group = scene ? obs_scene_find_sceneitem_by_id(scene, it->id) : nullptr;
+		if (!group)
+			continue;
+		std::vector<ItemRow> children;
+		obs_sceneitem_group_enum_items(group, collect_items, &children);
+		for (auto c = children.rbegin(); c != children.rend(); ++c) {
+			ItemRow r = *c;
+			r.depth = 1;
+			rows.push_back(r);
+		}
 	}
 	obs_source_release(src);
 
 	const int64_t selected = Vertical::Get().selectedItem;
-	for (auto it = rows.rbegin(); it != rows.rend(); ++it) {
-		const int64_t id = it->id;
+	for (const ItemRow &r : rows) {
+		const int64_t id = r.id;
 		auto item = new QListWidgetItem(list);
 		item->setData(Qt::UserRole, QVariant::fromValue<qlonglong>(id));
 
 		auto rowWidget = new QWidget(list);
 		auto rowLayout = new QHBoxLayout(rowWidget);
-		rowLayout->setContentsMargins(4, 1, 4, 1);
+		rowLayout->setContentsMargins(4 + r.depth * 20, 1, 4, 1);
 		rowLayout->setSpacing(4);
 
 		auto eye = new QToolButton(rowWidget);
 		eye->setAutoRaise(true);
-		eye->setText(it->visible ? QString::fromUtf8("\xF0\x9F\x91\x81") : QString::fromUtf8("\xE2\x80\x94"));
-		eye->setToolTip(it->visible ? QString::fromUtf8("Sichtbar – klicken zum Ausblenden")
-					    : QString::fromUtf8("Ausgeblendet – klicken zum Einblenden"));
+		eye->setText(r.visible ? QString::fromUtf8("\xF0\x9F\x91\x81") : QString::fromUtf8("\xE2\x80\x94"));
+		eye->setToolTip(r.visible ? QString::fromUtf8("Sichtbar – klicken zum Ausblenden")
+					  : QString::fromUtf8("Ausgeblendet – klicken zum Einblenden"));
 		connect(eye, &QToolButton::clicked, this, [id] {
-			obs_source_t *src = Vertical::Get().CurrentSceneRef();
-			if (obs_sceneitem_t *si = obs_scene_find_sceneitem_by_id(obs_scene_from_source(src), id))
+			obs_source_t *s = Vertical::Get().CurrentSceneRef();
+			if (obs_sceneitem_t *si = XVFindItem(obs_scene_from_source(s), id))
 				obs_sceneitem_set_visible(si, !obs_sceneitem_visible(si));
-			obs_source_release(src);
+			obs_source_release(s);
 			Vertical::Get().Notify();
 		});
+		rowLayout->addWidget(eye);
 
-		auto label = new QLabel(QString::fromStdString(it->name), rowWidget);
-		if (!it->visible)
+		if (r.isGroup) {
+			const bool isCollapsed = collapsed.count(id) > 0;
+			auto toggle = new QToolButton(rowWidget);
+			toggle->setAutoRaise(true);
+			toggle->setText(isCollapsed ? QString::fromUtf8("\xE2\x96\xB8") : QString::fromUtf8("\xE2\x96\xBE"));
+			toggle->setToolTip(QString::fromUtf8("Gruppe auf-/zuklappen"));
+			connect(toggle, &QToolButton::clicked, this, [this, id] {
+				if (collapsed.count(id))
+					collapsed.erase(id);
+				else
+					collapsed.insert(id);
+				Refresh();
+			});
+			rowLayout->addWidget(toggle);
+		}
+
+		QString text = QString::fromStdString(r.name);
+		if (r.isGroup)
+			text = QString::fromUtf8("\xF0\x9F\x93\x81 ") + text;
+		auto label = new QLabel(text, rowWidget);
+		if (!r.visible)
 			label->setStyleSheet(QStringLiteral("color:#777;"));
+		else if (r.isGroup)
+			label->setStyleSheet(QStringLiteral("font-weight:bold;"));
+		rowLayout->addWidget(label, 1);
 
 		auto lock = new QToolButton(rowWidget);
 		lock->setAutoRaise(true);
-		lock->setText(it->locked ? QString::fromUtf8("\xF0\x9F\x94\x92") : QString::fromUtf8("\xF0\x9F\x94\x93"));
-		lock->setToolTip(it->locked ? QString::fromUtf8("Gesperrt – kann in der Vorschau nicht verschoben werden")
-					    : QString::fromUtf8("Entsperrt – klicken zum Sperren"));
+		lock->setText(r.locked ? QString::fromUtf8("\xF0\x9F\x94\x92") : QString::fromUtf8("\xF0\x9F\x94\x93"));
+		lock->setToolTip(r.locked ? QString::fromUtf8("Gesperrt – kann in der Vorschau nicht verschoben werden")
+					  : QString::fromUtf8("Entsperrt – klicken zum Sperren"));
 		connect(lock, &QToolButton::clicked, this, [id] {
-			obs_source_t *src = Vertical::Get().CurrentSceneRef();
-			if (obs_sceneitem_t *si = obs_scene_find_sceneitem_by_id(obs_scene_from_source(src), id))
+			obs_source_t *s = Vertical::Get().CurrentSceneRef();
+			if (obs_sceneitem_t *si = XVFindItem(obs_scene_from_source(s), id))
 				obs_sceneitem_set_locked(si, !obs_sceneitem_locked(si));
-			obs_source_release(src);
+			obs_source_release(s);
 			Vertical::Get().Notify();
 		});
-
-		rowLayout->addWidget(eye);
-		rowLayout->addWidget(label, 1);
 		rowLayout->addWidget(lock);
+
 		item->setSizeHint(rowWidget->sizeHint());
 		list->setItemWidget(item, rowWidget);
 		if (id == selected)
@@ -627,6 +664,19 @@ void XVSourcesDock::ShowAddMenu()
 	}
 	obs_frontend_source_list_free(&mainScenes);
 
+	menu.addSeparator();
+	menu.addAction(QString::fromUtf8("\xF0\x9F\x93\x81 Neue Gruppe"), this, [this, scene] {
+		bool ok = false;
+		const QString name = QInputDialog::getText(this, QStringLiteral("Neue Gruppe"), QStringLiteral("Name der Gruppe:"),
+							   QLineEdit::Normal, QStringLiteral("Gruppe TT"), &ok)
+					     .trimmed();
+		if (!ok || name.isEmpty())
+			return;
+		const std::string unique = unique_source_name(name.toStdString());
+		if (obs_sceneitem_t *g = obs_scene_add_group2(scene, unique.c_str(), true))
+			Vertical::Get().selectedItem = obs_sceneitem_get_id(g);
+	});
+
 	menu.exec(QCursor::pos());
 	obs_source_release(sceneSrc);
 	Vertical::Get().Notify();
@@ -730,6 +780,32 @@ void XVSourcesDock::ShowContextMenu(const QPoint &pos)
 				"Oberes Drittel", "Untere zwei Drittel", "Zurücksetzen"};
 	for (int i = 0; i < 7; i++)
 		fitMenu->addAction(QString::fromUtf8(labels[i]), this, [this, i] { ApplyFit(i); });
+	obs_scene_t *ctxScene = obs_scene_from_source(src);
+	obs_sceneitem_t *parentGroup = obs_sceneitem_get_group(ctxScene, item);
+	QAction *ungroupItem = nullptr;
+	if (parentGroup)
+		ungroupItem = menu.addAction(QString::fromUtf8("Aus Gruppe nehmen"));
+	std::vector<std::pair<QAction *, int64_t>> moveTargets;
+	if (!obs_sceneitem_is_group(item)) {
+		QMenu *toGroup = menu.addMenu(QString::fromUtf8("In Gruppe verschieben"));
+		obs_scene_enum_items(
+			ctxScene,
+			[](obs_scene_t *, obs_sceneitem_t *si, void *param) {
+				if (obs_sceneitem_is_group(si))
+					static_cast<std::vector<int64_t> *>(param)->push_back(obs_sceneitem_get_id(si));
+				return true;
+			},
+			&groupIds);
+		for (int64_t gid : groupIds) {
+			obs_sceneitem_t *g = obs_scene_find_sceneitem_by_id(ctxScene, gid);
+			if (!g || g == parentGroup)
+				continue;
+			const char *gn = obs_source_get_name(obs_sceneitem_get_source(g));
+			moveTargets.emplace_back(toGroup->addAction(QString::fromUtf8(gn ? gn : "Gruppe")), gid);
+		}
+		groupIds.clear();
+		toGroup->setEnabled(!moveTargets.empty());
+	}
 	menu.addSeparator();
 	QAction *removeAction = menu.addAction(QString::fromUtf8("Entfernen"));
 
@@ -751,6 +827,16 @@ void XVSourcesDock::ShowContextMenu(const QPoint &pos)
 	} else if (chosen == removeAction) {
 		obs_sceneitem_remove(item);
 		Vertical::Get().selectedItem = 0;
+	} else if (chosen && chosen == ungroupItem) {
+		obs_sceneitem_group_remove_item(parentGroup, item);
+	} else if (chosen) {
+		for (const auto &t : moveTargets) {
+			if (t.first == chosen) {
+				if (obs_sceneitem_t *g = obs_scene_find_sceneitem_by_id(ctxScene, t.second))
+					obs_sceneitem_group_add_item(g, item);
+				break;
+			}
+		}
 	}
 	obs_source_release(src);
 	Vertical::Get().Notify();

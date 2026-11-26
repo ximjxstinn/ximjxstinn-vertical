@@ -11,6 +11,7 @@
 
 #include <obs.h>
 #include <obs-frontend-api.h>
+#include <graphics/matrix4.h>
 
 #include <QObject>
 #include <QPointer>
@@ -36,7 +37,16 @@ struct XVSettings {
 	std::string hubDir;
 	bool hubAutostart = true;
 	bool autoUpdate = true;
+	std::string transitionMode = "obs"; /* obs, fade, cut, slide, swipe */
+	int transitionDuration = 300;
 };
+
+/* Quelle per ID finden – auch innerhalb von Gruppen */
+obs_sceneitem_t *XVFindItem(obs_scene_t *scene, int64_t id);
+/* Rahmen einer Quelle in Leinwand-Koordinaten (berücksichtigt Gruppen) */
+void XVItemBox(obs_scene_t *scene, obs_sceneitem_t *item, matrix4 &out);
+/* Umrechnung Leinwand -> Koordinaten innerhalb der Gruppe (Identität ohne Gruppe) */
+void XVItemParentInverse(obs_scene_t *scene, obs_sceneitem_t *item, matrix4 &out);
 
 class Vertical {
 public:
@@ -64,6 +74,7 @@ public:
 	void MoveScene(const std::string &name, int delta);
 	void SetSceneOrder(const std::vector<std::string> &order);
 	void OnMainSceneChanged();
+	void TransitionSettingsChanged();
 
 	/* Auswahl im Vorschaubild */
 	int64_t selectedItem = 0;
@@ -86,10 +97,15 @@ private:
 	Vertical() = default;
 	void MakeVideoInfo(obs_video_info &ovi);
 	void ReleaseOutput();
+	void EnsureTransition(obs_canvas_t *c);
+	void ReleaseTransition();
+	int TransitionDurationMs();
 	static void OutputStopped(void *data, calldata_t *cd);
 
 	std::mutex mutex;
 	obs_canvas_t *canvas = nullptr;
+	obs_source_t *transition = nullptr;
+	std::string transitionKey;
 	std::string wantedScene;
 	std::vector<std::string> sceneOrder;
 
