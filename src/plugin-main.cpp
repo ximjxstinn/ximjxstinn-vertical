@@ -83,6 +83,11 @@ static void frontend_event(enum obs_frontend_event event, void *)
 	case OBS_FRONTEND_EVENT_STREAMING_STOPPING:
 		if (v.settings.startWithMain)
 			v.StopStream();
+		v.Notify();
+		break;
+	case OBS_FRONTEND_EVENT_STREAMING_STARTED:
+	case OBS_FRONTEND_EVENT_STREAMING_STOPPED:
+		v.Notify();
 		break;
 	case OBS_FRONTEND_EVENT_EXIT:
 		v.Shutdown();

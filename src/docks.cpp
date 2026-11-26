@@ -24,6 +24,10 @@
 
 #include <map>
 #include <QToolButton>
+#include <QToolBar>
+#include <QCheckBox>
+#include <QIcon>
+#include <QMetaObject>
 #include <QAbstractItemModel>
 #include <QMessageBox>
 #include <QUrl>
@@ -33,13 +37,85 @@
 #include <string>
 #include <vector>
 
-static QPushButton *tool_button(const char *text, const char *tip, QWidget *parent)
+/* Knöpfe im OBS-Stil: Symbole kommen aus dem aktiven OBS-Theme */
+static QToolButton *tool_button(const char *cls, const char *tip, QWidget *parent)
 {
-	auto b = new QPushButton(QString::fromUtf8(text), parent);
+	auto b = new QToolButton(parent);
+	b->setProperty("class", cls);
+	b->setProperty("themeID", cls);
 	b->setToolTip(QString::fromUtf8(tip));
-	b->setMinimumWidth(30);
-	b->setMaximumWidth(44);
+	b->setAutoRaise(true);
+	b->setIconSize(QSize(16, 16));
 	return b;
+}
+
+static QToolBar *make_toolbar(QWidget *parent)
+{
+	auto tb = new QToolBar(parent);
+	tb->setIconSize(QSize(16, 16));
+	tb->setMovable(false);
+	tb->setFloatable(false);
+	tb->setToolButtonStyle(Qt::ToolButtonIconOnly);
+	return tb;
+}
+
+/* Quellen-Symbol genau wie in OBS (aus dem OBS-Hauptfenster bzw. Theme) */
+static QIcon obs_source_icon(obs_source_t *source)
+{
+	auto main = static_cast<QWidget *>(obs_frontend_get_main_window());
+	if (!main || !source)
+		return QIcon();
+	const char *prop = "defaultIcon";
+	if (obs_source_is_group(source)) {
+		prop = "groupIcon";
+	} else if (obs_source_is_scene(source)) {
+		prop = "sceneIcon";
+	} else {
+		switch (obs_source_get_icon_type(obs_source_get_id(source))) {
+		case OBS_ICON_TYPE_IMAGE:
+			prop = "imageIcon";
+			break;
+		case OBS_ICON_TYPE_COLOR:
+			prop = "colorIcon";
+			break;
+		case OBS_ICON_TYPE_SLIDESHOW:
+			prop = "slideshowIcon";
+			break;
+		case OBS_ICON_TYPE_AUDIO_INPUT:
+			prop = "audioInputIcon";
+			break;
+		case OBS_ICON_TYPE_AUDIO_OUTPUT:
+			prop = "audioOutputIcon";
+			break;
+		case OBS_ICON_TYPE_DESKTOP_CAPTURE:
+			prop = "desktopCapIcon";
+			break;
+		case OBS_ICON_TYPE_WINDOW_CAPTURE:
+			prop = "windowCapIcon";
+			break;
+		case OBS_ICON_TYPE_GAME_CAPTURE:
+			prop = "gameCapIcon";
+			break;
+		case OBS_ICON_TYPE_CAMERA:
+			prop = "cameraIcon";
+			break;
+		case OBS_ICON_TYPE_TEXT:
+			prop = "textIcon";
+			break;
+		case OBS_ICON_TYPE_MEDIA:
+			prop = "mediaIcon";
+			break;
+		case OBS_ICON_TYPE_BROWSER:
+			prop = "browserIcon";
+			break;
+		case OBS_ICON_TYPE_PROCESS_AUDIO_OUTPUT:
+			prop = "audioProcessOutputIcon";
+			break;
+		default:
+			break;
+		}
+	}
+	return main->property(prop).value<QIcon>();
 }
 
 /* ================================================================== */
@@ -49,18 +125,47 @@ static QPushButton *tool_button(const char *text, const char *tip, QWidget *pare
 XVMainDock::XVMainDock(QWidget *parent) : QWidget(parent)
 {
 	auto layout = new QVBoxLayout(this);
-	layout->setContentsMargins(4, 4, 4, 4);
+	layout->setContentsMargins(0, 0, 0, 0);
 	layout->setSpacing(4);
 
 	preview = new XVPreview(this);
 	layout->addWidget(preview, 1);
 
-	auto row = new QHBoxLayout();
-	row->setSpacing(4);
-
+	/* Großer Knopf: Twitch + TikTok gleichzeitig */
 	streamButton = new QPushButton(this);
-	streamButton->setMinimumHeight(30);
-	connect(streamButton, &QPushButton::clicked, this, [this] {
+	streamButton->setMinimumHeight(34);
+	connect(streamButton, &QAbstractButton::clicked, this, [this] {
+		Vertical &v = Vertical::Get();
+		const bool twitchLive = obs_frontend_streaming_active();
+		const bool tiktokLive = v.IsStreaming();
+		if (twitchLive || tiktokLive) {
+			if (QMessageBox::question(this, QStringLiteral("Streams beenden"),
+						  QString::fromUtf8("Twitch und TikTok wirklich beenden?")) != QMessageBox::Yes)
+				return;
+			if (tiktokLive)
+				v.StopStream();
+			if (twitchLive)
+				obs_frontend_streaming_stop();
+			return;
+		}
+		std::string error;
+		if (!v.StartStream(error)) {
+			if (QMessageBox::question(this, QStringLiteral("TikTok"),
+						  QString::fromStdString(error) +
+							  QString::fromUtf8("\n\nNur Twitch starten?")) != QMessageBox::Yes)
+				return;
+		}
+		obs_frontend_streaming_start();
+	});
+	layout->addWidget(streamButton);
+
+	auto row = new QHBoxLayout();
+	row->setContentsMargins(0, 0, 0, 0);
+	row->setSpacing(2);
+
+	tiktokButton = new QPushButton(this);
+	tiktokButton->setToolTip(QString::fromUtf8("Nur TikTok starten/stoppen"));
+	connect(tiktokButton, &QAbstractButton::clicked, this, [this] {
 		Vertical &v = Vertical::Get();
 		if (v.IsStreaming()) {
 			v.StopStream();
@@ -70,27 +175,22 @@ XVMainDock::XVMainDock(QWidget *parent) : QWidget(parent)
 				QMessageBox::warning(this, QStringLiteral("xImJxstinn Vertical"), QString::fromStdString(error));
 		}
 	});
-	row->addWidget(streamButton, 1);
+	row->addWidget(tiktokButton);
 
-	auto settingsButton = tool_button("\xE2\x9A\x99", "Einstellungen (TikTok-Key, Auflösung, Bitrate …)", this);
-	connect(settingsButton, &QPushButton::clicked, this, [this] { XVSettingsDialog::Run(this); });
-	row->addWidget(settingsButton);
+	status = new QLabel(this);
+	row->addWidget(status, 1);
+	row->addWidget(new ViewerCounter(this));
 
-	auto chatButton = tool_button("\xF0\x9F\x92\xAC", "Multichat in OBS öffnen (Twitch + TikTok)", this);
-	connect(chatButton, &QPushButton::clicked, this, [] { XVShowChatDock(); });
-	row->addWidget(chatButton);
-
-	auto overlayButton = tool_button("\xF0\x9F\x96\xBC", "Overlays einfügen (Chat, Alerts, Zuschauer, hervorgehobene Nachricht)", this);
-	connect(overlayButton, &QPushButton::clicked, this, [this] { ShowOverlayMenu(); });
-	row->addWidget(overlayButton);
+	auto toolbar = make_toolbar(this);
+	auto settingsButton = tool_button("icon-gear", "Einstellungen (TikTok-Key, Auflösung, Übergang …)", toolbar);
+	connect(settingsButton, &QAbstractButton::clicked, this, [this] { XVSettingsDialog::Run(this); });
+	auto moreButton = tool_button("icon-dots-vert", "Multichat, Overlays, MultiStream Hub", toolbar);
+	connect(moreButton, &QAbstractButton::clicked, this, [this] { ShowOverlayMenu(); });
+	toolbar->addWidget(settingsButton);
+	toolbar->addWidget(moreButton);
+	row->addWidget(toolbar);
 
 	layout->addLayout(row);
-
-	auto infoRow = new QHBoxLayout();
-	status = new QLabel(this);
-	infoRow->addWidget(status, 1);
-	infoRow->addWidget(new ViewerCounter(this));
-	layout->addLayout(infoRow);
 
 	Vertical::Get().AddListener(this, [this] { Refresh(); });
 	Refresh();
@@ -147,17 +247,23 @@ void XVMainDock::ShowOverlayMenu()
 void XVMainDock::Refresh()
 {
 	Vertical &v = Vertical::Get();
-	const bool live = v.IsStreaming();
-	streamButton->setText(live ? QString::fromUtf8("\xE2\x96\xA0 TikTok stoppen")
-				   : QString::fromUtf8("\xE2\x96\xB6 TikTok starten"));
-	streamButton->setStyleSheet(live ? QStringLiteral("QPushButton{background:#e5253f;color:white;font-weight:bold;}")
-					 : QString());
+	const bool tiktokLive = v.IsStreaming();
+	const bool twitchLive = obs_frontend_streaming_active();
+	const bool anyLive = tiktokLive || twitchLive;
+
+	streamButton->setText(anyLive ? QString::fromUtf8("\xE2\x96\xA0  Twitch + TikTok beenden")
+				      : QString::fromUtf8("\xE2\x96\xB6  Twitch + TikTok starten"));
+	streamButton->setStyleSheet(anyLive ? QStringLiteral("QPushButton{background:#d1203a;color:white;font-weight:bold;}")
+					    : QStringLiteral("QPushButton{font-weight:bold;}"));
+	tiktokButton->setText(tiktokLive ? QString::fromUtf8("TikTok stoppen") : QString::fromUtf8("Nur TikTok"));
+
+	auto dot = [](bool live, const char *name) {
+		return live ? QString::fromUtf8("<span style='color:#ff4d5e'>\xE2\x97\x8F</span> <b>%1</b>").arg(QString::fromUtf8(name))
+			    : QString::fromUtf8("<span style='color:#777'>\xE2\x97\x8F %1</span>").arg(QString::fromUtf8(name));
+	};
+	status->setText(dot(twitchLive, "Twitch") + QStringLiteral("&nbsp;&nbsp;") + dot(tiktokLive, "TikTok"));
 	const std::string scene = v.CurrentSceneName();
-	QString text = live ? QString::fromUtf8("<b style='color:#ff4d5e'>\xE2\x97\x8F LIVE</b>")
-			    : QString::fromUtf8("<span style='color:#888'>\xE2\x97\x8F Offline</span>");
-	if (!scene.empty())
-		text += QStringLiteral(" &nbsp;·&nbsp; ") + QString::fromStdString(scene).toHtmlEscaped();
-	status->setText(text);
+	status->setToolTip(scene.empty() ? QString() : QString::fromUtf8("Aktuelle Hochformat-Szene: ") + QString::fromStdString(scene));
 }
 
 /* ================================================================== */
@@ -220,7 +326,7 @@ void XVScenesDock::ShowLinkDialog()
 	layout->addLayout(form);
 
 	auto autoButton = new QPushButton(QString::fromUtf8("Automatisch nach Namen verbinden („Szene“ → „Szene TT“)"));
-	QObject::connect(autoButton, &QPushButton::clicked, &dlg, [&rows, &v] {
+	QObject::connect(autoButton, &QAbstractButton::clicked, &dlg, [&rows, &v] {
 		for (auto &r : rows) {
 			for (const std::string &cand : {r.name + v.settings.suffix, r.name}) {
 				const int idx = r.combo->findData(QString::fromStdString(cand));
@@ -266,8 +372,8 @@ void XVScenesDock::ShowLinkDialog()
 XVScenesDock::XVScenesDock(QWidget *parent) : QWidget(parent)
 {
 	auto layout = new QVBoxLayout(this);
-	layout->setContentsMargins(4, 4, 4, 4);
-	layout->setSpacing(4);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->setSpacing(0);
 
 	list = new QListWidget(this);
 	list->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -291,41 +397,46 @@ XVScenesDock::XVScenesDock(QWidget *parent) : QWidget(parent)
 	});
 	connect(list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *) { RenameScene(); });
 
-	auto row = new QHBoxLayout();
-	row->setSpacing(4);
-	auto add = tool_button("+", "Neue Hochformat-Szene", this);
-	auto remove = tool_button("\xE2\x88\x92", "Szene löschen", this);
-	auto rename = tool_button("\xE2\x9C\x8E", "Szene umbenennen", this);
-	auto sceneUp = tool_button("\xE2\x96\xB2", "Szene nach oben", this);
-	auto sceneDown = tool_button("\xE2\x96\xBC", "Szene nach unten", this);
-	auto linkButton = tool_button("\xF0\x9F\x94\x97", "OBS-Szenen mit Hochformat-Szenen verbinden", this);
-	connect(linkButton, &QPushButton::clicked, this, [this] { ShowLinkDialog(); });
+	auto toolbar = make_toolbar(this);
+	auto add = tool_button("icon-plus", "Neue Hochformat-Szene", toolbar);
+	auto remove = tool_button("icon-trash", "Szene löschen", toolbar);
+	auto more = tool_button("icon-dots-vert", "Umbenennen, OBS-Szenen verbinden", toolbar);
+	auto sceneUp = tool_button("icon-up", "Szene nach oben", toolbar);
+	auto sceneDown = tool_button("icon-down", "Szene nach unten", toolbar);
 	auto moveScene = [this](int delta) {
 		QListWidgetItem *cur = list->currentItem();
 		if (cur)
 			Vertical::Get().MoveScene(SceneNameOf(cur), delta);
 	};
-	connect(sceneUp, &QPushButton::clicked, this, [moveScene] { moveScene(-1); });
-	connect(sceneDown, &QPushButton::clicked, this, [moveScene] { moveScene(1); });
-	connect(add, &QPushButton::clicked, this, [this] { AddScene(); });
-	connect(remove, &QPushButton::clicked, this, [this] { RemoveScene(); });
-	connect(rename, &QPushButton::clicked, this, [this] { RenameScene(); });
-	row->addWidget(add);
-	row->addWidget(remove);
-	row->addWidget(rename);
-	row->addWidget(sceneUp);
-	row->addWidget(sceneDown);
-	row->addWidget(linkButton);
-	row->addStretch(1);
-	layout->addLayout(row);
+	connect(sceneUp, &QAbstractButton::clicked, this, [moveScene] { moveScene(-1); });
+	connect(sceneDown, &QAbstractButton::clicked, this, [moveScene] { moveScene(1); });
+	connect(add, &QAbstractButton::clicked, this, [this] { AddScene(); });
+	connect(remove, &QAbstractButton::clicked, this, [this] { RemoveScene(); });
+	connect(more, &QAbstractButton::clicked, this, [this] {
+		QMenu menu(this);
+		menu.addAction(QString::fromUtf8("Umbenennen"), this, [this] { RenameScene(); });
+		menu.addAction(QString::fromUtf8("Mit OBS-Szenen verbinden …"), this, [this] { ShowLinkDialog(); });
+		menu.exec(QCursor::pos());
+	});
+	toolbar->addWidget(add);
+	toolbar->addWidget(remove);
+	toolbar->addSeparator();
+	toolbar->addWidget(more);
+	toolbar->addSeparator();
+	toolbar->addWidget(sceneUp);
+	toolbar->addWidget(sceneDown);
+	layout->addWidget(toolbar);
 
-	auto hint = new QLabel(
-		QString::fromUtf8("Reihenfolge: ▲▼ oder per Maus ziehen – bleibt nach dem OBS-Neustart gleich. "
-				  "🔗 = OBS-Szenen verbinden: TikTok wechselt mit demselben Übergang automatisch mit."),
-		this);
-	hint->setWordWrap(true);
-	hint->setStyleSheet(QStringLiteral("color:#888;font-size:11px;"));
-	layout->addWidget(hint);
+	list->setContextMenuPolicy(Qt::CustomContextMenu);
+	connect(list, &QListWidget::customContextMenuRequested, this, [this](const QPoint &) {
+		QMenu menu(this);
+		menu.addAction(QString::fromUtf8("Neue Szene"), this, [this] { AddScene(); });
+		menu.addAction(QString::fromUtf8("Umbenennen"), this, [this] { RenameScene(); });
+		menu.addAction(QString::fromUtf8("Löschen"), this, [this] { RemoveScene(); });
+		menu.addSeparator();
+		menu.addAction(QString::fromUtf8("Mit OBS-Szenen verbinden …"), this, [this] { ShowLinkDialog(); });
+		menu.exec(QCursor::pos());
+	});
 
 	Vertical::Get().AddListener(this, [this] { Refresh(); });
 	Refresh();
@@ -346,7 +457,6 @@ void XVScenesDock::Refresh()
 			for (const auto &m : linked)
 				l << QString::fromStdString(m);
 			item->setToolTip(QString::fromUtf8("Verbunden mit OBS-Szene: ") + l.join(QStringLiteral(", ")));
-			item->setText(QString::fromStdString(n) + QString::fromUtf8("   \xF0\x9F\x94\x97"));
 			item->setData(Qt::UserRole, QString::fromStdString(n));
 		}
 		if (n == current) {
@@ -417,8 +527,8 @@ void XVScenesDock::RenameScene()
 XVSourcesDock::XVSourcesDock(QWidget *parent) : QWidget(parent)
 {
 	auto layout = new QVBoxLayout(this);
-	layout->setContentsMargins(4, 4, 4, 4);
-	layout->setSpacing(4);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->setSpacing(0);
 
 	list = new QListWidget(this);
 	list->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -441,17 +551,16 @@ XVSourcesDock::XVSourcesDock(QWidget *parent) : QWidget(parent)
 	connect(list, &QListWidget::customContextMenuRequested, this,
 		[this](const QPoint &pos) { ShowContextMenu(pos); });
 
-	auto row = new QHBoxLayout();
-	row->setSpacing(4);
-	auto add = tool_button("+", "Quelle hinzufügen", this);
-	auto remove = tool_button("\xE2\x88\x92", "Quelle entfernen", this);
-	auto up = tool_button("\xE2\x96\xB2", "Nach oben", this);
-	auto down = tool_button("\xE2\x96\xBC", "Nach unten", this);
-	auto props = tool_button("\xE2\x9A\x99", "Eigenschaften", this);
-	auto fit = tool_button("\xE2\xA4\xA2", "Anpassen (Vollbild, obere/untere Hälfte …)", this);
+	auto toolbar = make_toolbar(this);
+	auto add = tool_button("icon-plus", "Quelle hinzufügen", toolbar);
+	auto remove = tool_button("icon-trash", "Quelle entfernen", toolbar);
+	auto props = tool_button("icon-gear", "Eigenschaften", toolbar);
+	auto fit = tool_button("icon-dots-vert", "Anpassen (Vollbild, Hälften …) und Filter", toolbar);
+	auto up = tool_button("icon-up", "Nach oben", toolbar);
+	auto down = tool_button("icon-down", "Nach unten", toolbar);
 
-	connect(add, &QPushButton::clicked, this, [this] { ShowAddMenu(); });
-	connect(remove, &QPushButton::clicked, this, [this] {
+	connect(add, &QAbstractButton::clicked, this, [this] { ShowAddMenu(); });
+	connect(remove, &QAbstractButton::clicked, this, [this] {
 		obs_source_t *src = Vertical::Get().CurrentSceneRef();
 		if (obs_sceneitem_t *item = SelectedItem(obs_scene_from_source(src))) {
 			const char *name = obs_source_get_name(obs_sceneitem_get_source(item));
@@ -471,27 +580,25 @@ XVSourcesDock::XVSourcesDock(QWidget *parent) : QWidget(parent)
 			obs_sceneitem_set_order(item, dir);
 		obs_source_release(src);
 	};
-	connect(up, &QPushButton::clicked, this, [move] { move(OBS_ORDER_MOVE_UP); });
-	connect(down, &QPushButton::clicked, this, [move] { move(OBS_ORDER_MOVE_DOWN); });
-	connect(props, &QPushButton::clicked, this, [this] {
+	connect(up, &QAbstractButton::clicked, this, [move] { move(OBS_ORDER_MOVE_UP); });
+	connect(down, &QAbstractButton::clicked, this, [move] { move(OBS_ORDER_MOVE_DOWN); });
+	connect(props, &QAbstractButton::clicked, this, [this] {
 		obs_source_t *src = Vertical::Get().CurrentSceneRef();
 		if (obs_sceneitem_t *item = SelectedItem(obs_scene_from_source(src)))
 			obs_frontend_open_source_properties(obs_sceneitem_get_source(item));
 		obs_source_release(src);
 	});
-	connect(fit, &QPushButton::clicked, this, [this] { ShowFitMenu(); });
+	connect(fit, &QAbstractButton::clicked, this, [this] { ShowFitMenu(); });
 
-	for (auto b : {add, remove, up, down, props, fit})
-		row->addWidget(b);
-	row->addStretch(1);
-	layout->addLayout(row);
-
-	auto hint = new QLabel(QString::fromUtf8("In der Vorschau: klicken = auswählen, ziehen = verschieben, "
-						 "Mausrad = Größe, Pfeiltasten = fein verschieben. 👁 = ein/aus, 🔒 = sperren."),
-			       this);
-	hint->setWordWrap(true);
-	hint->setStyleSheet(QStringLiteral("color:#888;font-size:11px;"));
-	layout->addWidget(hint);
+	toolbar->addWidget(add);
+	toolbar->addWidget(remove);
+	toolbar->addWidget(props);
+	toolbar->addSeparator();
+	toolbar->addWidget(fit);
+	toolbar->addSeparator();
+	toolbar->addWidget(up);
+	toolbar->addWidget(down);
+	layout->addWidget(toolbar);
 
 	Vertical::Get().AddListener(this, [this] { Refresh(); });
 	Refresh();
@@ -553,6 +660,7 @@ struct ItemRow {
 	bool locked;
 	bool isGroup;
 	int depth;
+	QIcon icon;
 };
 
 static bool collect_items(obs_scene_t *, obs_sceneitem_t *item, void *param)
@@ -560,7 +668,7 @@ static bool collect_items(obs_scene_t *, obs_sceneitem_t *item, void *param)
 	auto out = static_cast<std::vector<ItemRow> *>(param);
 	const char *n = obs_source_get_name(obs_sceneitem_get_source(item));
 	out->push_back({obs_sceneitem_get_id(item), n ? n : "", obs_sceneitem_visible(item), obs_sceneitem_locked(item),
-			obs_sceneitem_is_group(item), 0});
+			obs_sceneitem_is_group(item), 0, obs_source_icon(obs_sceneitem_get_source(item))});
 	return true;
 }
 
@@ -603,58 +711,54 @@ void XVSourcesDock::Refresh()
 
 		auto rowWidget = new QWidget(list);
 		auto rowLayout = new QHBoxLayout(rowWidget);
-		rowLayout->setContentsMargins(4 + r.depth * 20, 1, 4, 1);
-		rowLayout->setSpacing(4);
-
-		auto eye = new QToolButton(rowWidget);
-		eye->setAutoRaise(true);
-		eye->setText(r.visible ? QString::fromUtf8("\xF0\x9F\x91\x81") : QString::fromUtf8("\xE2\x80\x94"));
-		eye->setToolTip(r.visible ? QString::fromUtf8("Sichtbar – klicken zum Ausblenden")
-					  : QString::fromUtf8("Ausgeblendet – klicken zum Einblenden"));
-		connect(eye, &QToolButton::clicked, this, [id] {
-			obs_source_t *s = Vertical::Get().CurrentSceneRef();
-			if (obs_sceneitem_t *si = XVFindItem(obs_scene_from_source(s), id))
-				obs_sceneitem_set_visible(si, !obs_sceneitem_visible(si));
-			obs_source_release(s);
-			Vertical::Get().Notify();
-		});
-		rowLayout->addWidget(eye);
+		rowLayout->setContentsMargins(4 + r.depth * 22, 0, 4, 0);
+		rowLayout->setSpacing(6);
 
 		if (r.isGroup) {
-			const bool isCollapsed = collapsed.count(id) > 0;
-			auto toggle = new QToolButton(rowWidget);
-			toggle->setAutoRaise(true);
-			toggle->setText(isCollapsed ? QString::fromUtf8("\xE2\x96\xB8") : QString::fromUtf8("\xE2\x96\xBE"));
-			toggle->setToolTip(QString::fromUtf8("Gruppe auf-/zuklappen"));
-			connect(toggle, &QToolButton::clicked, this, [this, id] {
-				if (collapsed.count(id))
+			auto expand = new QCheckBox(rowWidget);
+			expand->setProperty("class", "indicator-expand");
+			expand->setChecked(collapsed.count(id) == 0);
+			expand->setToolTip(QString::fromUtf8("Gruppe auf-/zuklappen"));
+			connect(expand, &QCheckBox::toggled, this, [this, id](bool open) {
+				if (open)
 					collapsed.erase(id);
 				else
 					collapsed.insert(id);
-				Refresh();
+				QMetaObject::invokeMethod(this, [this] { Refresh(); }, Qt::QueuedConnection);
 			});
-			rowLayout->addWidget(toggle);
+			rowLayout->addWidget(expand);
 		}
 
-		QString text = QString::fromStdString(r.name);
-		if (r.isGroup)
-			text = QString::fromUtf8("\xF0\x9F\x93\x81 ") + text;
-		auto label = new QLabel(text, rowWidget);
-		if (!r.visible)
-			label->setStyleSheet(QStringLiteral("color:#777;"));
-		else if (r.isGroup)
-			label->setStyleSheet(QStringLiteral("font-weight:bold;"));
+		auto iconLabel = new QLabel(rowWidget);
+		iconLabel->setPixmap(r.icon.pixmap(16, 16));
+		iconLabel->setFixedSize(16, 16);
+		rowLayout->addWidget(iconLabel);
+
+		auto label = new QLabel(QString::fromStdString(r.name), rowWidget);
+		label->setEnabled(r.visible);
 		rowLayout->addWidget(label, 1);
 
-		auto lock = new QToolButton(rowWidget);
-		lock->setAutoRaise(true);
-		lock->setText(r.locked ? QString::fromUtf8("\xF0\x9F\x94\x92") : QString::fromUtf8("\xF0\x9F\x94\x93"));
-		lock->setToolTip(r.locked ? QString::fromUtf8("Gesperrt – kann in der Vorschau nicht verschoben werden")
-					  : QString::fromUtf8("Entsperrt – klicken zum Sperren"));
-		connect(lock, &QToolButton::clicked, this, [id] {
+		auto vis = new QCheckBox(rowWidget);
+		vis->setProperty("class", "indicator-visibility");
+		vis->setChecked(r.visible);
+		vis->setToolTip(QString::fromUtf8("Sichtbar ein/aus"));
+		connect(vis, &QCheckBox::toggled, this, [id](bool on) {
 			obs_source_t *s = Vertical::Get().CurrentSceneRef();
 			if (obs_sceneitem_t *si = XVFindItem(obs_scene_from_source(s), id))
-				obs_sceneitem_set_locked(si, !obs_sceneitem_locked(si));
+				obs_sceneitem_set_visible(si, on);
+			obs_source_release(s);
+			Vertical::Get().Notify();
+		});
+		rowLayout->addWidget(vis);
+
+		auto lock = new QCheckBox(rowWidget);
+		lock->setProperty("class", "indicator-lock");
+		lock->setChecked(r.locked);
+		lock->setToolTip(QString::fromUtf8("Sperren (in der Vorschau nicht verschiebbar)"));
+		connect(lock, &QCheckBox::toggled, this, [id](bool on) {
+			obs_source_t *s = Vertical::Get().CurrentSceneRef();
+			if (obs_sceneitem_t *si = XVFindItem(obs_scene_from_source(s), id))
+				obs_sceneitem_set_locked(si, on);
 			obs_source_release(s);
 			Vertical::Get().Notify();
 		});
@@ -781,7 +885,7 @@ void XVSourcesDock::ShowAddMenu()
 	obs_frontend_source_list_free(&mainScenes);
 
 	menu.addSeparator();
-	menu.addAction(QString::fromUtf8("\xF0\x9F\x93\x81 Neue Gruppe"), this, [this, scene] {
+	menu.addAction(QString::fromUtf8("Neue Gruppe"), this, [this, scene] {
 		bool ok = false;
 		const QString name = QInputDialog::getText(this, QStringLiteral("Neue Gruppe"), QStringLiteral("Name der Gruppe:"),
 							   QLineEdit::Normal, QStringLiteral("Gruppe TT"), &ok)
@@ -804,8 +908,15 @@ void XVSourcesDock::ShowFitMenu()
 	const char *labels[] = {"Ganzes Bild einpassen", "Bild füllen (Ränder abschneiden)", "Obere Hälfte",
 				"Untere Hälfte", "Oberes Drittel (z. B. Facecam)", "Untere zwei Drittel (z. B. Gameplay)",
 				"Zurücksetzen"};
+	QMenu *fitMenu = menu.addMenu(QString::fromUtf8("Anpassen"));
 	for (int i = 0; i < 7; i++)
-		menu.addAction(QString::fromUtf8(labels[i]), this, [this, i] { ApplyFit(i); });
+		fitMenu->addAction(QString::fromUtf8(labels[i]), this, [this, i] { ApplyFit(i); });
+	menu.addAction(QString::fromUtf8("Filter"), this, [this] {
+		obs_source_t *src = Vertical::Get().CurrentSceneRef();
+		if (obs_sceneitem_t *item = SelectedItem(obs_scene_from_source(src)))
+			obs_frontend_open_source_filters(obs_sceneitem_get_source(item));
+		obs_source_release(src);
+	});
 	menu.exec(QCursor::pos());
 }
 

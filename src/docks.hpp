@@ -25,6 +25,7 @@ private:
 	void ShowOverlayMenu();
 	XVPreview *preview;
 	QPushButton *streamButton;
+	QPushButton *tiktokButton;
 	QLabel *status;
 };
 
