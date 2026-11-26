@@ -1,5 +1,5 @@
 /*
- * xImJxstinn Vertical – automatische Updates über GitHub-Releases
+ * xImJxstinn Stream Tools – automatische Updates über GitHub-Releases
  * Copyright (C) 2026 xImJxstinn – GPL-2.0-or-later
  */
 #pragma once

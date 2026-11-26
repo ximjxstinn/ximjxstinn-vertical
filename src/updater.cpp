@@ -1,5 +1,5 @@
 /*
- * xImJxstinn Vertical – automatische Updates über GitHub-Releases
+ * xImJxstinn Stream Tools – automatische Updates über GitHub-Releases
  *
  * Ablauf: Beim OBS-Start wird das neueste Release von
  * github.com/ximjxstinn/ximjxstinn-vertical abgefragt. Ist es neuer, wird der
@@ -9,7 +9,6 @@
  * Copyright (C) 2026 xImJxstinn – GPL-2.0-or-later
  */
 #include "updater.hpp"
-#include "vertical.hpp"
 
 #include <obs-module.h>
 #include <obs-frontend-api.h>
@@ -78,7 +77,7 @@ static CURL *make_curl(const std::string &url)
 	if (!curl)
 		return nullptr;
 	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "xImJxstinn-Vertical-Updater");
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, "xImJxstinn-StreamTools-Updater");
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
@@ -163,7 +162,7 @@ static void launch_installer(bool restartObs)
 	if (installerPath.isEmpty() || !QFile::exists(installerPath))
 		return;
 	const QString tmp = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-	const QString script = QDir(tmp).filePath(QStringLiteral("ximjxstinn-vertical-update.cmd"));
+	const QString script = QDir(tmp).filePath(QStringLiteral("ximjxstinn-streamtools-update.cmd"));
 	const QString obsExe = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
 	const QString obsDir = QDir::toNativeSeparators(QCoreApplication::applicationDirPath());
 
@@ -181,7 +180,7 @@ static void launch_installer(bool restartObs)
 	f.close();
 
 	run_hidden(QStringLiteral("cmd.exe"), {QStringLiteral("/c"), QDir::toNativeSeparators(script)});
-	blog(LOG_INFO, "[xImJxstinn Vertical] Update wird installiert");
+	blog(LOG_INFO, "[xImJxstinn Stream Tools] Update wird installiert");
 }
 
 void OnExit()
@@ -197,7 +196,7 @@ void OnExit()
 static void ask_user(QPointer<QWidget> parent, const QString &version, const QString &notes)
 {
 	QMessageBox box(parent);
-	box.setWindowTitle(QStringLiteral("xImJxstinn Vertical – Update"));
+	box.setWindowTitle(QStringLiteral("xImJxstinn Stream Tools – Update"));
 	box.setIcon(QMessageBox::Information);
 	QString text = QString::fromUtf8("<b>Neue Version %1 ist da</b> (du hast %2).<br><br>")
 			       .arg(version.toHtmlEscaped(), QString::fromUtf8(PLUGIN_VERSION));
@@ -237,9 +236,9 @@ void Check(QWidget *parentWidget, bool manual)
 				QCoreApplication::instance(),
 				[parent, message, error] {
 					if (error)
-						QMessageBox::warning(parent, QStringLiteral("xImJxstinn Vertical"), message);
+						QMessageBox::warning(parent, QStringLiteral("xImJxstinn Stream Tools"), message);
 					else
-						QMessageBox::information(parent, QStringLiteral("xImJxstinn Vertical"), message);
+						QMessageBox::information(parent, QStringLiteral("xImJxstinn Stream Tools"), message);
 				},
 				Qt::QueuedConnection);
 		};
@@ -273,7 +272,7 @@ void Check(QWidget *parentWidget, bool manual)
 		}
 
 		const QString tmp = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-		const QString path = QDir(tmp).filePath(QStringLiteral("ximjxstinn-vertical-%1-setup.exe").arg(tag));
+		const QString path = QDir(tmp).filePath(QStringLiteral("ximjxstinn-streamtools-%1-setup.exe").arg(tag));
 		if (!http_download(assetUrl.toStdString(), path)) {
 			finish(QString::fromUtf8("Download des Updates fehlgeschlagen."), true);
 			return;

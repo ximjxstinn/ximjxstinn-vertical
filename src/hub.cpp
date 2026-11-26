@@ -1,9 +1,9 @@
 /*
- * xImJxstinn Vertical – Anbindung an den MultiStream Hub
+ * xImJxstinn Stream Tools – Anbindung an den MultiStream Hub
  * Copyright (C) 2026 xImJxstinn – GPL-2.0-or-later
  */
 #include "hub.hpp"
-#include "vertical.hpp"
+#include "settings.hpp"
 
 #include <curl/curl.h>
 
@@ -70,7 +70,7 @@ bool IsValidHubDir(const std::string &dir)
 
 std::string FindHubDir()
 {
-	const std::string configured = Vertical::Get().settings.hubDir;
+	const std::string configured = XSettings::Get().hubDir;
 	if (IsValidHubDir(configured))
 		return configured;
 
@@ -118,7 +118,7 @@ bool Start(std::string &error)
 		return false;
 	}
 	startedByUs = true;
-	blog(LOG_INFO, "[xImJxstinn Vertical] MultiStream Hub gestartet");
+	blog(LOG_INFO, "[xImJxstinn Stream Tools] MultiStream Hub gestartet");
 	return true;
 }
 

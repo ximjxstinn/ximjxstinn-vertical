@@ -1,4 +1,4 @@
-name: xImJxstinn Vertical – Windows Build
+name: xImJxstinn Stream Tools – Windows Build
 on:
   push:
     branches: [main, master]
@@ -33,16 +33,16 @@ jobs:
 
       - name: Installer erstellen 📀
         run: |
-          iscc "/DMyAppVersion=${{ steps.setup.outputs.pluginVersion }}" "/O$env:GITHUB_WORKSPACE\release" installer\ximjxstinn-vertical.iss
+          iscc "/DMyAppVersion=${{ steps.setup.outputs.pluginVersion }}" "/O$env:GITHUB_WORKSPACE\release" installer\ximjxstinn-streamtools.iss
 
       - name: ZIP erstellen
         run: |
-          Compress-Archive -Force -Path release\RelWithDebInfo\ximjxstinn-vertical -DestinationPath release\ximjxstinn-vertical-${{ steps.setup.outputs.pluginVersion }}-windows-manuell.zip
+          Compress-Archive -Force -Path release\RelWithDebInfo\ximjxstinn-streamtools -DestinationPath release\ximjxstinn-streamtools-${{ steps.setup.outputs.pluginVersion }}-windows-manuell.zip
 
       - name: Download bereitstellen 📡
         uses: actions/upload-artifact@v4
         with:
-          name: ximjxstinn-vertical-${{ steps.setup.outputs.pluginVersion }}-windows
+          name: ximjxstinn-streamtools-${{ steps.setup.outputs.pluginVersion }}-windows
           path: |
             release/*.exe
             release/*.zip
@@ -52,7 +52,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.setup.outputs.pluginVersion }}
-          name: xImJxstinn Vertical ${{ steps.setup.outputs.pluginVersion }}
+          name: xImJxstinn Stream Tools ${{ steps.setup.outputs.pluginVersion }}
           target_commitish: ${{ github.sha }}
           make_latest: true
           body: ${{ github.event.head_commit.message }}

@@ -1,5 +1,5 @@
 /*
- * xImJxstinn Vertical – Multichat-Dock (Twitch + TikTok) aus dem MultiStream Hub
+ * xImJxstinn Stream Tools – Multichat-Dock (Twitch + TikTok) aus dem MultiStream Hub
  * Copyright (C) 2026 xImJxstinn – GPL-2.0-or-later
  */
 #pragma once

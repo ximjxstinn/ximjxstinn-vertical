@@ -26,16 +26,10 @@ target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE
     src/plugin-main.cpp
-    src/vertical.cpp
-    src/vertical.hpp
-    src/preview.cpp
-    src/preview.hpp
-    src/docks.cpp
-    src/docks.hpp
-    src/settings-dialog.cpp
-    src/settings-dialog.hpp
-    src/viewer-counter.cpp
-    src/viewer-counter.hpp
+    src/settings.cpp
+    src/settings.hpp
+    src/viewers-dock.cpp
+    src/viewers-dock.hpp
     src/hub.cpp
     src/hub.hpp
     src/chat-dock.cpp

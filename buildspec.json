@@ -33,12 +33,12 @@
     },
     "platformConfig": {
         "macos": {
-            "bundleId": "tv.ximjxstinn.vertical"
+            "bundleId": "tv.ximjxstinn.streamtools"
         }
     },
-    "name": "ximjxstinn-vertical",
-    "displayName": "xImJxstinn Vertical",
-    "version": "2.6.0",
+    "name": "ximjxstinn-streamtools",
+    "displayName": "xImJxstinn Stream Tools",
+    "version": "3.0.0",
     "author": "xImJxstinn",
     "website": "https://www.twitch.tv/ximjxstinn",
     "email": "ximjxstinn@users.noreply.github.com"

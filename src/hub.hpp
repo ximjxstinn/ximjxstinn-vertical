@@ -1,5 +1,5 @@
 /*
- * xImJxstinn Vertical – Anbindung an den MultiStream Hub
+ * xImJxstinn Stream Tools – Anbindung an den MultiStream Hub
  * (Twitch- + TikTok-Chat, Alerts, Overlays, Zuschauerzahlen)
  * Copyright (C) 2026 xImJxstinn – GPL-2.0-or-later
  */
