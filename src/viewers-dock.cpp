@@ -6,12 +6,13 @@
 #include "chat-dock.hpp"
 #include "hub.hpp"
 #include "settings.hpp"
+#include "icons.hpp"
 
 #include <obs-frontend-api.h>
 #include <curl/curl.h>
 
 #include <QCursor>
-#include <QGridLayout>
+#include <QHBoxLayout>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -51,17 +52,47 @@ static std::string xvd_get_state()
 	return body;
 }
 
-static QLabel *make_tile(QGridLayout *grid, int col, const QString &title, const QString &color, QWidget *parent)
+static const char *CARD_STYLE =
+	"QFrame#xvCard{background:rgba(255,255,255,0.045);border:1px solid rgba(255,255,255,0.09);"
+	"border-radius:10px;}";
+
+static QLabel *icon_label(const char *icon, const QString &color, int size, QWidget *parent)
 {
-	auto name = new QLabel(title, parent);
-	name->setAlignment(Qt::AlignCenter);
-	name->setStyleSheet(QStringLiteral("color:%1;font-weight:bold;").arg(color));
-	auto value = new QLabel(QString::fromUtf8("\xE2\x80\x93"), parent);
-	value->setAlignment(Qt::AlignCenter);
-	value->setStyleSheet(QStringLiteral("font-size:26px;font-weight:800;"));
-	grid->addWidget(value, 0, col);
-	grid->addWidget(name, 1, col);
-	return value;
+	auto l = new QLabel(parent);
+	l->setPixmap(XIcons::Pixmap(icon, color, size, parent));
+	l->setFixedSize(size, size);
+	return l;
+}
+
+static XViewerCard make_card(const QString &title, const QString &color, const char *icon, QWidget *parent)
+{
+	XViewerCard c;
+	c.frame = new QFrame(parent);
+	c.frame->setObjectName(QStringLiteral("xvCard"));
+	c.frame->setStyleSheet(QString::fromUtf8(CARD_STYLE) +
+			       QStringLiteral("QFrame#xvCard{border-left:4px solid %1;}").arg(color));
+	auto v = new QVBoxLayout(c.frame);
+	v->setContentsMargins(12, 8, 10, 10);
+	v->setSpacing(2);
+
+	auto head = new QHBoxLayout();
+	head->setSpacing(6);
+	head->addWidget(icon_label(icon, color, 16, c.frame));
+	auto name = new QLabel(title, c.frame);
+	name->setStyleSheet(QStringLiteral("color:%1;font-weight:700;font-size:12px;letter-spacing:0.5px;").arg(color));
+	c.badge = new QLabel(c.frame);
+	c.badgeIcon = new QLabel(c.frame);
+	c.badgeIcon->setFixedSize(14, 14);
+	head->addWidget(name);
+	head->addStretch(1);
+	head->addWidget(c.badgeIcon);
+	head->addWidget(c.badge);
+	v->addLayout(head);
+
+	c.value = new QLabel(QString::fromUtf8("\xE2\x80\x93"), c.frame);
+	c.value->setStyleSheet(QStringLiteral("font-size:24px;font-weight:800;"));
+	v->addWidget(c.value);
+	return c;
 }
 
 static QToolButton *obs_tool_button(const char *cls, const char *tip, QWidget *parent)
@@ -78,20 +109,65 @@ static QToolButton *obs_tool_button(const char *cls, const char *tip, QWidget *p
 XViewersDock::XViewersDock(QWidget *parent) : QWidget(parent)
 {
 	auto layout = new QVBoxLayout(this);
-	layout->setContentsMargins(0, 8, 0, 0);
-	layout->setSpacing(6);
+	layout->setContentsMargins(8, 8, 8, 0);
+	layout->setSpacing(8);
 
-	auto grid = new QGridLayout();
-	grid->setHorizontalSpacing(12);
-	twitchValue = make_tile(grid, 0, QStringLiteral("Twitch"), QStringLiteral("#9146ff"), this);
-	tiktokValue = make_tile(grid, 1, QStringLiteral("TikTok"), QStringLiteral("#fe2c55"), this);
-	totalValue = make_tile(grid, 2, QStringLiteral("Gesamt"), QStringLiteral("#dddddd"), this);
-	layout->addLayout(grid);
+	/* Große Gesamt-Karte */
+	auto totalFrame = new QFrame(this);
+	totalFrame->setObjectName(QStringLiteral("xvCard"));
+	totalFrame->setStyleSheet(
+		QStringLiteral("QFrame#xvCard{border-radius:12px;border:1px solid rgba(255,255,255,0.10);"
+			       "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 rgba(145,70,255,0.30),"
+			       "stop:1 rgba(254,44,85,0.26));}"));
+	auto tv = new QVBoxLayout(totalFrame);
+	tv->setContentsMargins(14, 10, 14, 12);
+	tv->setSpacing(0);
+	auto titleRow = new QHBoxLayout();
+	titleRow->setSpacing(6);
+	titleRow->addWidget(icon_label(XIcons::Users, QStringLiteral("rgba(255,255,255,0.85)"), 16, totalFrame));
+	auto totalTitle = new QLabel(QString::fromUtf8("ZUSCHAUER GESAMT"), totalFrame);
+	totalTitle->setStyleSheet(QStringLiteral("font-size:11px;font-weight:700;letter-spacing:1px;color:rgba(255,255,255,0.8);"));
+	titleRow->addWidget(totalTitle);
+	titleRow->addStretch(1);
+	tv->addLayout(titleRow);
+	auto totalRow = new QHBoxLayout();
+	totalValue = new QLabel(QString::fromUtf8("\xE2\x80\x93"), totalFrame);
+	totalValue->setStyleSheet(QStringLiteral("font-size:38px;font-weight:900;color:white;"));
+	trend = new QLabel(totalFrame);
+	trend->setStyleSheet(QStringLiteral("font-size:13px;font-weight:700;"));
+	trendIcon = new QLabel(totalFrame);
+	trendIcon->setFixedSize(16, 16);
+	totalRow->addWidget(totalValue);
+	totalRow->addSpacing(6);
+	totalRow->addWidget(trendIcon, 0, Qt::AlignBottom);
+	totalRow->addWidget(trend, 0, Qt::AlignBottom);
+	totalRow->addStretch(1);
+	tv->addLayout(totalRow);
+	auto peakRow = new QHBoxLayout();
+	peakRow->setSpacing(5);
+	peakIcon = icon_label(XIcons::Trophy, QStringLiteral("#ffd166"), 13, totalFrame);
+	peakIcon->setVisible(false);
+	peak = new QLabel(totalFrame);
+	peak->setStyleSheet(QStringLiteral("font-size:11px;color:rgba(255,255,255,0.75);"));
+	peakRow->addWidget(peakIcon);
+	peakRow->addWidget(peak);
+	peakRow->addStretch(1);
+	tv->addLayout(peakRow);
+	layout->addWidget(totalFrame);
+
+	/* Twitch + TikTok nebeneinander */
+	auto cards = new QHBoxLayout();
+	cards->setSpacing(8);
+	twitch = make_card(QStringLiteral("TWITCH"), QStringLiteral("#a970ff"), XIcons::Screen, this);
+	tiktok = make_card(QStringLiteral("TIKTOK"), QStringLiteral("#fe2c55"), XIcons::Music, this);
+	cards->addWidget(twitch.frame, 1);
+	cards->addWidget(tiktok.frame, 1);
+	layout->addLayout(cards);
 
 	state = new QLabel(this);
 	state->setAlignment(Qt::AlignCenter);
 	state->setWordWrap(true);
-	state->setStyleSheet(QStringLiteral("color:#888;"));
+	state->setStyleSheet(QStringLiteral("color:#8a8a99;font-size:11px;"));
 	layout->addWidget(state);
 	layout->addStretch(1);
 
@@ -107,6 +183,10 @@ XViewersDock::XViewersDock(QWidget *parent) : QWidget(parent)
 	connect(more, &QAbstractButton::clicked, this, [this] {
 		QMenu menu(this);
 		menu.addAction(QString::fromUtf8("Multichat in OBS öffnen"), this, [] { XVShowChatDock(); });
+		menu.addAction(QString::fromUtf8("Peak zurücksetzen"), this, [this] {
+			peakTotal = lastTotal > 0 ? lastTotal : 0;
+			peak->setText(QString::fromUtf8("Peak: ") + QLocale(QLocale::German).toString(peakTotal));
+		});
 		if (!Hub::Online()) {
 			menu.addAction(QString::fromUtf8("MultiStream Hub starten"), this, [this] {
 				std::string error;
@@ -149,34 +229,74 @@ void XViewersDock::Tick()
 	});
 }
 
+void XViewersDock::SetLive(XViewerCard &card, bool live, const QString &offlineText)
+{
+	card.badgeIcon->setPixmap(XIcons::Pixmap(live ? XIcons::Live : XIcons::Offline,
+						 live ? QStringLiteral("#ff4d64") : QStringLiteral("#8a8a99"), 14, card.frame));
+	if (live) {
+		card.badge->setText(QStringLiteral("LIVE"));
+		card.badge->setStyleSheet(QStringLiteral(
+			"color:white;background:#e91e3a;border-radius:7px;padding:1px 7px;font-size:10px;font-weight:800;"));
+	} else {
+		card.badge->setText(offlineText);
+		card.badge->setStyleSheet(QStringLiteral(
+			"color:#9a9aa8;background:rgba(255,255,255,0.07);border-radius:7px;padding:1px 7px;font-size:10px;"));
+	}
+}
+
 void XViewersDock::Apply(const QByteArray &json)
 {
 	const QString dash = QString::fromUtf8("\xE2\x80\x93");
+	const QLocale de(QLocale::German);
 	if (json.isEmpty()) {
-		twitchValue->setText(dash);
-		tiktokValue->setText(dash);
+		twitch.value->setText(dash);
+		tiktok.value->setText(dash);
 		totalValue->setText(dash);
+		trend->clear();
+		trendIcon->clear();
+		SetLive(twitch, false, QStringLiteral("offline"));
+		SetLive(tiktok, false, QStringLiteral("offline"));
 		state->setText(QString::fromUtf8("MultiStream Hub läuft nicht – über ⋮ starten."));
 		return;
 	}
 	const QJsonObject st = QJsonDocument::fromJson(json).object().value(QStringLiteral("status")).toObject();
 	const QJsonValue tw = st.value(QStringLiteral("twitch_viewers"));
 	const QJsonValue tt = st.value(QStringLiteral("tiktok_viewers"));
-	const QLocale de(QLocale::German);
 	const bool hasTw = !tw.isNull() && !tw.isUndefined();
 	const bool hasTt = !tt.isNull() && !tt.isUndefined();
 	const qlonglong twN = hasTw ? (qlonglong)tw.toDouble() : 0;
 	const qlonglong ttN = hasTt ? (qlonglong)tt.toDouble() : 0;
-	twitchValue->setText(hasTw ? de.toString(twN) : dash);
-	tiktokValue->setText(hasTt ? de.toString(ttN) : dash);
-	totalValue->setText(hasTw || hasTt ? de.toString(twN + ttN) : dash);
 
-	QStringList info;
-	if (!hasTw)
-		info << QString::fromUtf8("Twitch offline");
-	if (!hasTt)
-		info << QString::fromUtf8("TikTok nicht live");
-	state->setText(info.join(QStringLiteral(" · ")));
+	twitch.value->setText(hasTw ? de.toString(twN) : dash);
+	tiktok.value->setText(hasTt ? de.toString(ttN) : dash);
+	SetLive(twitch, hasTw, QStringLiteral("offline"));
+	SetLive(tiktok, hasTt, QStringLiteral("nicht live"));
+
+	if (hasTw || hasTt) {
+		const qlonglong total = twN + ttN;
+		totalValue->setText(de.toString(total));
+		if (lastTotal >= 0 && total != lastTotal) {
+			const qlonglong diff = total - lastTotal;
+			trendIcon->setPixmap(XIcons::Pixmap(diff > 0 ? XIcons::TrendUp : XIcons::TrendDown,
+							    diff > 0 ? QStringLiteral("#3ddc84") : QStringLiteral("#ff6b81"), 16, this));
+			trend->setText(de.toString(diff > 0 ? diff : -diff));
+			trend->setStyleSheet(QStringLiteral("font-size:13px;font-weight:700;color:%1;")
+						     .arg(diff > 0 ? QStringLiteral("#3ddc84") : QStringLiteral("#ff6b81")));
+		}
+		lastTotal = total;
+		if (total > peakTotal)
+			peakTotal = total;
+		peak->setText(QString::fromUtf8("Peak heute: ") + de.toString(peakTotal));
+		peakIcon->setVisible(true);
+		state->clear();
+	} else {
+		totalValue->setText(dash);
+		trend->clear();
+		trendIcon->clear();
+		peak->setText(peakTotal > 0 ? QString::fromUtf8("Peak heute: ") + de.toString(peakTotal) : QString());
+		peakIcon->setVisible(peakTotal > 0);
+		state->setText(QString::fromUtf8("Gerade offline – die Zahlen erscheinen, sobald du live bist."));
+	}
 }
 
 void XViewersDock::ShowAddMenu()

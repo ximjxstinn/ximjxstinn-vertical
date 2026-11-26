@@ -30,6 +30,7 @@ target_sources(
     src/settings.hpp
     src/viewers-dock.cpp
     src/viewers-dock.hpp
+    src/icons.hpp
     src/hub.cpp
     src/hub.hpp
     src/chat-dock.cpp
