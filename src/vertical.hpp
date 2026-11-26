@@ -17,6 +17,7 @@
 #include <QPointer>
 
 #include <functional>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -74,6 +75,12 @@ public:
 	void MoveScene(const std::string &name, int delta);
 	void SetSceneOrder(const std::vector<std::string> &order);
 	void OnMainSceneChanged();
+
+	/* Feste Verbindungen: OBS-Szene (UUID) -> Hochformat-Szene (UUID) */
+	std::map<std::string, std::string> links;
+	void SetLinks(const std::map<std::string, std::string> &newLinks);
+	std::vector<std::string> LinkedMainScenes(const std::string &verticalName);
+	std::string LinkedVerticalFor(obs_source_t *mainScene); /* Name oder leer */
 	void TransitionSettingsChanged();
 
 	/* Auswahl im Vorschaubild */
@@ -106,6 +113,8 @@ private:
 	obs_canvas_t *canvas = nullptr;
 	obs_source_t *transition = nullptr;
 	std::string transitionKey;
+	std::string overrideTransition;
+	int overrideMs = -1;
 	std::string wantedScene;
 	std::vector<std::string> sceneOrder;
 

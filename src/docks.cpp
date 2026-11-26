@@ -4,6 +4,7 @@
  */
 #include "docks.hpp"
 #include "hub.hpp"
+#include "chat-dock.hpp"
 #include "preview.hpp"
 #include "settings-dialog.hpp"
 #include "vertical.hpp"
@@ -16,6 +17,12 @@
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QMenu>
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+
+#include <map>
 #include <QToolButton>
 #include <QAbstractItemModel>
 #include <QMessageBox>
@@ -69,9 +76,8 @@ XVMainDock::XVMainDock(QWidget *parent) : QWidget(parent)
 	connect(settingsButton, &QPushButton::clicked, this, [this] { XVSettingsDialog::Run(this); });
 	row->addWidget(settingsButton);
 
-	auto chatButton = tool_button("\xF0\x9F\x92\xAC", "MultiStream Hub öffnen (Twitch- + TikTok-Chat)", this);
-	connect(chatButton, &QPushButton::clicked, this,
-		[] { QDesktopServices::openUrl(QUrl(QStringLiteral("http://localhost:8770/"))); });
+	auto chatButton = tool_button("\xF0\x9F\x92\xAC", "Multichat in OBS öffnen (Twitch + TikTok)", this);
+	connect(chatButton, &QPushButton::clicked, this, [] { XVShowChatDock(); });
 	row->addWidget(chatButton);
 
 	auto overlayButton = tool_button("\xF0\x9F\x96\xBC", "Overlays einfügen (Chat, Alerts, Zuschauer, hervorgehobene Nachricht)", this);
@@ -127,8 +133,7 @@ void XVMainDock::ShowOverlayMenu()
 		});
 	}
 	menu.addSeparator();
-	menu.addAction(QString::fromUtf8("MultiStream Hub im Browser öffnen"), this,
-		       [] { QDesktopServices::openUrl(QUrl(QStringLiteral("http://localhost:8770/"))); });
+	menu.addAction(QString::fromUtf8("\xF0\x9F\x92\xAC Multichat in OBS öffnen"), this, [] { XVShowChatDock(); });
 	if (!Hub::Online()) {
 		menu.addAction(QString::fromUtf8("\xE2\x96\xB6 MultiStream Hub starten"), this, [this] {
 			std::string error;
@@ -159,6 +164,105 @@ void XVMainDock::Refresh()
 /* Szenen                                                              */
 /* ================================================================== */
 
+static std::string SceneNameOf(QListWidgetItem *item)
+{
+	if (!item)
+		return std::string();
+	const QVariant v = item->data(Qt::UserRole);
+	if (v.isValid() && !v.toString().isEmpty())
+		return v.toString().toStdString();
+	return item->text().toStdString();
+}
+
+void XVScenesDock::ShowLinkDialog()
+{
+	Vertical &v = Vertical::Get();
+	const std::vector<std::string> verticalNames = v.SceneNames();
+
+	QDialog dlg(this);
+	dlg.setWindowTitle(QString::fromUtf8("Szenen verbinden"));
+	dlg.setMinimumWidth(480);
+	auto layout = new QVBoxLayout(&dlg);
+	auto info = new QLabel(QString::fromUtf8(
+		"Wähle für jede OBS-Szene die passende Hochformat-Szene. Wechselst du in OBS die Szene, "
+		"wechselt TikTok automatisch mit – mit demselben Übergang wie in OBS."));
+	info->setWordWrap(true);
+	layout->addWidget(info);
+
+	auto form = new QFormLayout();
+	struct Row {
+		std::string uuid;
+		std::string name;
+		QComboBox *combo;
+	};
+	std::vector<Row> rows;
+
+	struct obs_frontend_source_list mainScenes = {};
+	obs_frontend_get_scenes(&mainScenes);
+	for (size_t i = 0; i < mainScenes.sources.num; i++) {
+		obs_source_t *m = mainScenes.sources.array[i];
+		const char *mn = obs_source_get_name(m);
+		const char *mu = obs_source_get_uuid(m);
+		if (!mn || !mu)
+			continue;
+		auto combo = new QComboBox();
+		combo->addItem(QString::fromUtf8("— nicht verbunden —"), QString());
+		const std::string linked = v.LinkedVerticalFor(m);
+		for (const auto &vn : verticalNames) {
+			combo->addItem(QString::fromStdString(vn), QString::fromStdString(vn));
+			if (vn == linked)
+				combo->setCurrentIndex(combo->count() - 1);
+		}
+		form->addRow(QString::fromUtf8(mn), combo);
+		rows.push_back({mu, mn, combo});
+	}
+	obs_frontend_source_list_free(&mainScenes);
+	layout->addLayout(form);
+
+	auto autoButton = new QPushButton(QString::fromUtf8("Automatisch nach Namen verbinden („Szene“ → „Szene TT“)"));
+	QObject::connect(autoButton, &QPushButton::clicked, &dlg, [&rows, &v] {
+		for (auto &r : rows) {
+			for (const std::string &cand : {r.name + v.settings.suffix, r.name}) {
+				const int idx = r.combo->findData(QString::fromStdString(cand));
+				if (idx > 0) {
+					r.combo->setCurrentIndex(idx);
+					break;
+				}
+			}
+		}
+	});
+	layout->addWidget(autoButton);
+
+	auto buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+	QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+	QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+	layout->addWidget(buttons);
+
+	if (dlg.exec() != QDialog::Accepted)
+		return;
+
+	std::map<std::string, std::string> newLinks;
+	obs_canvas_t *c = v.CanvasRef();
+	for (const auto &r : rows) {
+		const QString vn = r.combo->currentData().toString();
+		if (vn.isEmpty() || !c)
+			continue;
+		obs_source_t *vs = obs_canvas_get_source_by_name(c, vn.toUtf8().constData());
+		if (vs) {
+			const char *vu = obs_source_get_uuid(vs);
+			if (vu)
+				newLinks[r.uuid] = vu;
+			obs_source_release(vs);
+		}
+	}
+	if (c)
+		obs_canvas_release(c);
+	v.settings.autoSwitch = true;
+	v.SaveSettings();
+	v.SetLinks(newLinks);
+	v.OnMainSceneChanged();
+}
+
 XVScenesDock::XVScenesDock(QWidget *parent) : QWidget(parent)
 {
 	auto layout = new QVBoxLayout(this);
@@ -174,7 +278,7 @@ XVScenesDock::XVScenesDock(QWidget *parent) : QWidget(parent)
 	connect(list, &QListWidget::currentItemChanged, this, [this](QListWidgetItem *cur, QListWidgetItem *) {
 		if (updating || !cur)
 			return;
-		Vertical::Get().SetCurrentScene(cur->text().toStdString());
+		Vertical::Get().SetCurrentScene(SceneNameOf(cur));
 	});
 	/* Nach dem Ziehen die neue Reihenfolge fest speichern */
 	connect(list->model(), &QAbstractItemModel::rowsMoved, this, [this] {
@@ -182,7 +286,7 @@ XVScenesDock::XVScenesDock(QWidget *parent) : QWidget(parent)
 			return;
 		std::vector<std::string> order;
 		for (int i = 0; i < list->count(); i++)
-			order.push_back(list->item(i)->text().toStdString());
+			order.push_back(SceneNameOf(list->item(i)));
 		Vertical::Get().SetSceneOrder(order);
 	});
 	connect(list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *) { RenameScene(); });
@@ -194,10 +298,12 @@ XVScenesDock::XVScenesDock(QWidget *parent) : QWidget(parent)
 	auto rename = tool_button("\xE2\x9C\x8E", "Szene umbenennen", this);
 	auto sceneUp = tool_button("\xE2\x96\xB2", "Szene nach oben", this);
 	auto sceneDown = tool_button("\xE2\x96\xBC", "Szene nach unten", this);
+	auto linkButton = tool_button("\xF0\x9F\x94\x97", "OBS-Szenen mit Hochformat-Szenen verbinden", this);
+	connect(linkButton, &QPushButton::clicked, this, [this] { ShowLinkDialog(); });
 	auto moveScene = [this](int delta) {
 		QListWidgetItem *cur = list->currentItem();
 		if (cur)
-			Vertical::Get().MoveScene(cur->text().toStdString(), delta);
+			Vertical::Get().MoveScene(SceneNameOf(cur), delta);
 	};
 	connect(sceneUp, &QPushButton::clicked, this, [moveScene] { moveScene(-1); });
 	connect(sceneDown, &QPushButton::clicked, this, [moveScene] { moveScene(1); });
@@ -209,12 +315,13 @@ XVScenesDock::XVScenesDock(QWidget *parent) : QWidget(parent)
 	row->addWidget(rename);
 	row->addWidget(sceneUp);
 	row->addWidget(sceneDown);
+	row->addWidget(linkButton);
 	row->addStretch(1);
 	layout->addLayout(row);
 
 	auto hint = new QLabel(
 		QString::fromUtf8("Reihenfolge: ▲▼ oder per Maus ziehen – bleibt nach dem OBS-Neustart gleich. "
-				  "Heißt eine Szene wie deine OBS-Szene + „ TT“, wechselt sie automatisch mit."),
+				  "🔗 = OBS-Szenen verbinden: TikTok wechselt mit demselben Übergang automatisch mit."),
 		this);
 	hint->setWordWrap(true);
 	hint->setStyleSheet(QStringLiteral("color:#888;font-size:11px;"));
@@ -233,6 +340,15 @@ void XVScenesDock::Refresh()
 	list->clear();
 	for (const auto &n : names) {
 		auto item = new QListWidgetItem(QString::fromStdString(n), list);
+		const std::vector<std::string> linked = v.LinkedMainScenes(n);
+		if (!linked.empty()) {
+			QStringList l;
+			for (const auto &m : linked)
+				l << QString::fromStdString(m);
+			item->setToolTip(QString::fromUtf8("Verbunden mit OBS-Szene: ") + l.join(QStringLiteral(", ")));
+			item->setText(QString::fromStdString(n) + QString::fromUtf8("   \xF0\x9F\x94\x97"));
+			item->setData(Qt::UserRole, QString::fromStdString(n));
+		}
 		if (n == current) {
 			QFont f = item->font();
 			f.setBold(true);
@@ -270,7 +386,7 @@ void XVScenesDock::RemoveScene()
 					 QStringLiteral("Die letzte Szene kann nicht gelöscht werden."));
 		return;
 	}
-	const QString name = item->text();
+	const QString name = QString::fromStdString(SceneNameOf(item));
 	if (QMessageBox::question(this, QStringLiteral("Szene löschen"),
 				  QStringLiteral("Szene „%1“ wirklich löschen?").arg(name)) != QMessageBox::Yes)
 		return;
@@ -282,7 +398,7 @@ void XVScenesDock::RenameScene()
 	QListWidgetItem *item = list->currentItem();
 	if (!item)
 		return;
-	const QString oldName = item->text();
+	const QString oldName = QString::fromStdString(SceneNameOf(item));
 	bool ok = false;
 	const QString name = QInputDialog::getText(this, QStringLiteral("Szene umbenennen"), QStringLiteral("Neuer Name:"),
 						   QLineEdit::Normal, oldName, &ok)

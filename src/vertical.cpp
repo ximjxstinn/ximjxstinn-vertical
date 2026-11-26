@@ -509,22 +509,95 @@ void Vertical::OnMainSceneChanged()
 	obs_source_t *main = obs_frontend_get_current_scene();
 	if (!main)
 		return;
-	std::string mainName = obs_source_get_name(main) ? obs_source_get_name(main) : "";
-	obs_source_release(main);
-	if (mainName.empty())
-		return;
 
-	std::vector<std::string> names = SceneNames();
-	const std::string candidates[] = {mainName + settings.suffix, mainName};
-	for (const auto &cand : candidates) {
-		for (const auto &n : names) {
-			if (n == cand) {
-				if (CurrentSceneName() != n)
-					SetCurrentScene(n);
-				return;
+	std::string target = LinkedVerticalFor(main);
+	if (target.empty()) {
+		/* Ohne feste Verbindung: gleicher Name (+ Endung) */
+		const char *mn = obs_source_get_name(main);
+		const std::string mainName = mn ? mn : "";
+		const std::vector<std::string> names = SceneNames();
+		for (const std::string &cand : {mainName + settings.suffix, mainName}) {
+			if (std::find(names.begin(), names.end(), cand) != names.end()) {
+				target = cand;
+				break;
 			}
 		}
 	}
+
+	/* Übergangs-Überschreibung der OBS-Szene übernehmen */
+	overrideTransition.clear();
+	overrideMs = -1;
+	obs_data_t *priv = obs_source_get_private_settings(main);
+	if (priv) {
+		const char *t = obs_data_get_string(priv, "transition");
+		if (t && *t) {
+			overrideTransition = t;
+			overrideMs = (int)obs_data_get_int(priv, "transition_duration");
+		}
+		obs_data_release(priv);
+	}
+	obs_source_release(main);
+
+	if (!target.empty() && CurrentSceneName() != target)
+		SetCurrentScene(target);
+
+	overrideTransition.clear();
+	overrideMs = -1;
+}
+
+static std::string source_uuid(obs_source_t *s)
+{
+	const char *u = s ? obs_source_get_uuid(s) : nullptr;
+	return u ? u : "";
+}
+
+void Vertical::SetLinks(const std::map<std::string, std::string> &newLinks)
+{
+	links = newLinks;
+	obs_frontend_save();
+	Notify();
+}
+
+std::string Vertical::LinkedVerticalFor(obs_source_t *mainScene)
+{
+	auto it = links.find(source_uuid(mainScene));
+	if (it == links.end())
+		return std::string();
+	obs_source_t *v = obs_get_source_by_uuid(it->second.c_str());
+	std::string name;
+	if (v) {
+		const char *n = obs_source_get_name(v);
+		if (n)
+			name = n;
+		obs_source_release(v);
+	}
+	return name;
+}
+
+std::vector<std::string> Vertical::LinkedMainScenes(const std::string &verticalName)
+{
+	std::vector<std::string> result;
+	obs_canvas_t *c = CanvasRef();
+	if (!c)
+		return result;
+	obs_source_t *v = obs_canvas_get_source_by_name(c, verticalName.c_str());
+	obs_canvas_release(c);
+	const std::string vu = source_uuid(v);
+	obs_source_release(v);
+	if (vu.empty())
+		return result;
+	for (const auto &l : links) {
+		if (l.second != vu)
+			continue;
+		obs_source_t *m = obs_get_source_by_uuid(l.first.c_str());
+		if (m) {
+			const char *n = obs_source_get_name(m);
+			if (n)
+				result.emplace_back(n);
+			obs_source_release(m);
+		}
+	}
+	return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -536,7 +609,7 @@ int Vertical::TransitionDurationMs()
 	if (settings.transitionMode == "cut")
 		return 0;
 	if (settings.transitionMode == "obs")
-		return obs_frontend_get_transition_duration();
+		return overrideMs > 0 ? overrideMs : obs_frontend_get_transition_duration();
 	return settings.transitionDuration;
 }
 
@@ -555,7 +628,20 @@ void Vertical::EnsureTransition(obs_canvas_t *c)
 	std::string key = settings.transitionMode;
 	obs_source_t *mainTransition = nullptr;
 	if (key == "obs") {
-		mainTransition = obs_frontend_get_current_transition();
+		if (!overrideTransition.empty()) {
+			struct obs_frontend_source_list list = {};
+			obs_frontend_get_transitions(&list);
+			for (size_t i = 0; i < list.sources.num; i++) {
+				const char *n = obs_source_get_name(list.sources.array[i]);
+				if (n && overrideTransition == n) {
+					mainTransition = obs_source_get_ref(list.sources.array[i]);
+					break;
+				}
+			}
+			obs_frontend_source_list_free(&list);
+		}
+		if (!mainTransition)
+			mainTransition = obs_frontend_get_current_transition();
 		const char *n = mainTransition ? obs_source_get_name(mainTransition) : nullptr;
 		key += ":";
 		key += n ? n : "";
@@ -783,6 +869,16 @@ void Vertical::SaveCollection(obs_data_t *data)
 	}
 	obs_data_set_array(obj, "scene_order", order);
 	obs_data_array_release(order);
+	obs_data_array_t *linkArray = obs_data_array_create();
+	for (const auto &l : links) {
+		obs_data_t *entry = obs_data_create();
+		obs_data_set_string(entry, "main", l.first.c_str());
+		obs_data_set_string(entry, "vertical", l.second.c_str());
+		obs_data_array_push_back(linkArray, entry);
+		obs_data_release(entry);
+	}
+	obs_data_set_array(obj, "links", linkArray);
+	obs_data_array_release(linkArray);
 	obs_data_set_obj(data, "ximjxstinn_vertical", obj);
 	obs_data_release(obj);
 }
@@ -792,6 +888,7 @@ void Vertical::LoadCollection(obs_data_t *data)
 	obs_data_t *obj = obs_data_get_obj(data, "ximjxstinn_vertical");
 	wantedScene.clear();
 	sceneOrder.clear();
+	links.clear();
 	if (obj) {
 		wantedScene = obs_data_get_string(obj, "current_scene");
 		obs_data_array_t *order = obs_data_get_array(obj, "scene_order");
@@ -804,6 +901,17 @@ void Vertical::LoadCollection(obs_data_t *data)
 			obs_data_release(entry);
 		}
 		obs_data_array_release(order);
+		obs_data_array_t *linkArray = obs_data_get_array(obj, "links");
+		const size_t linkCount = obs_data_array_count(linkArray);
+		for (size_t i = 0; i < linkCount; i++) {
+			obs_data_t *entry = obs_data_array_item(linkArray, i);
+			const char *m = obs_data_get_string(entry, "main");
+			const char *v = obs_data_get_string(entry, "vertical");
+			if (m && *m && v && *v)
+				links[m] = v;
+			obs_data_release(entry);
+		}
+		obs_data_array_release(linkArray);
 		obs_data_release(obj);
 	}
 }

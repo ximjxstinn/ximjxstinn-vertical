@@ -37,6 +37,7 @@ private:
 	void AddScene();
 	void RemoveScene();
 	void RenameScene();
+	void ShowLinkDialog();
 	QListWidget *list;
 	bool updating = false;
 };

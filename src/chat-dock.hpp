@@ -11,6 +11,9 @@
 
 class QCefWidget;
 
+/* Multichat-Dock in OBS anzeigen und nach vorne holen */
+void XVShowChatDock();
+
 class XVChatDock : public QWidget {
 public:
 	explicit XVChatDock(QWidget *parent = nullptr);

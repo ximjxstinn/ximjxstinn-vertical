@@ -1,5 +1,6 @@
 /* xImJxstinn Vertical – Viewer Counter. Copyright (C) 2026 xImJxstinn – GPL-2.0-or-later */
 #include "viewer-counter.hpp"
+#include "chat-dock.hpp"
 
 #include <curl/curl.h>
 #include <QDesktopServices>
@@ -65,7 +66,7 @@ ViewerCounter::~ViewerCounter()
 void ViewerCounter::mousePressEvent(QMouseEvent *event)
 {
 	if (event->button() == Qt::LeftButton)
-		QDesktopServices::openUrl(QUrl(QString::fromUtf8("http://localhost:8770/")));
+		XVShowChatDock();
 	QLabel::mousePressEvent(event);
 }
 
@@ -118,6 +119,6 @@ void ViewerCounter::Apply(const QByteArray &json)
 				  "<span style='color:#fe2c55'>TT</span> %2 &nbsp;"
 				  "\xF0\x9F\x91\x81 %3")
 			.arg(twText, ttText, sumText));
-	setToolTip(QString::fromUtf8("Zuschauer: Twitch %1 · TikTok %2 · Gesamt %3\nKlicken öffnet den MultiStream Hub.")
+	setToolTip(QString::fromUtf8("Zuschauer: Twitch %1 · TikTok %2 · Gesamt %3\nKlicken öffnet den Multichat in OBS.")
 			   .arg(twText, ttText, sumText));
 }

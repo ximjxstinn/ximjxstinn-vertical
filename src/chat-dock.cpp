@@ -6,9 +6,34 @@
 #include "browser-panel.hpp"
 #include "hub.hpp"
 
+#include <QDockWidget>
 #include <QMessageBox>
+#include <QPointer>
 
 static QCef *xv_cef = nullptr;
+static QPointer<XVChatDock> xv_chat_dock;
+
+void XVShowChatDock()
+{
+	if (!xv_chat_dock)
+		return;
+	QWidget *w = xv_chat_dock;
+	auto dock = qobject_cast<QDockWidget *>(w->parentWidget());
+	if (!dock) {
+		/* Falls OBS das Dock anders verpackt: nach oben suchen */
+		for (QWidget *p = w->parentWidget(); p; p = p->parentWidget()) {
+			if ((dock = qobject_cast<QDockWidget *>(p)))
+				break;
+		}
+	}
+	if (dock) {
+		if (!dock->isVisible())
+			dock->setVisible(true);
+		dock->raise();
+		dock->activateWindow();
+	}
+	xv_chat_dock->InitBrowser();
+}
 
 XVChatDock::XVChatDock(QWidget *parent) : QWidget(parent)
 {
@@ -37,6 +62,7 @@ XVChatDock::XVChatDock(QWidget *parent) : QWidget(parent)
 	layout->addWidget(offlineBox, 1);
 
 	Hub::AddListener(this, [this](bool online) { SetOnline(online); });
+	xv_chat_dock = this;
 }
 
 void XVChatDock::InitBrowser()
